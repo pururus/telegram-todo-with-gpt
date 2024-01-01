@@ -114,6 +114,12 @@ async def start_handler(message: types.Message, state: FSMContext):
     3) Иначе отправляем инструкцию по настройке Google Calendar и переводим бота в состояние ожидания Google Calendar ID.
     """
     telegram_id = str(message.from_user.id)
+    
+    await message.answer_sticker(
+        "CAACAgIAAxkBAAENXrtnZxgiuFoPfzqjjk0xw5YibMHRXQACO1oAAugYOUtqf3pw3Ne_RTYE")
+    telegram_id = str(message.from_user.id)
+
+
 
     if is_user_registered(telegram_id):
         await message.answer("Вы уже зарегистрированы.", reply_markup=get_main_menu_keyboard())
