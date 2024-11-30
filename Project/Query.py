@@ -20,7 +20,7 @@ class Query:
 
 @dataclass
 class RegistrationQuery:
-    """
+    '''
         Client's query for registration
         
         Attributes
@@ -30,7 +30,7 @@ class RegistrationQuery:
         Calendar_link: str
         
         Notion_link: str
-    """
+    '''
     client_id: str
     Calendar_link: str
     Notion_link: str
