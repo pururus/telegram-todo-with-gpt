@@ -1,38 +1,67 @@
-from notion_client import Client
+import requests
 
-# Создаём клиента для работы с Notion
-notion = Client(auth="Ваш_секретный_ключ")  # Подставьте сюда ваш Integration Secret
-
-# Функция для добавления задачи в базу данных Notion
-def add_task_to_notion(database_id, task_name, task_due_date):
+class NotionAPI:
     """
-    Добавляет задачу в базу данных Notion.
-
-    :param database_id: Идентификатор базы данных (Database ID).
-    :param task_name: Название задачи.
-    :param task_due_date: Дата выполнения задачи в формате YYYY-MM-DD.
-    :return: Статус выполнения (успех или ошибка).
+    Класс для работы с API Notion.
     """
-    try:
-        notion.pages.create(
-            parent={"database_id": database_id},  # ID базы данных Notion
-            properties={
-                "Name": {  # Название задачи
+    BASE_URL = "https://api.notion.com/v1"
+    HEADERS = {
+        "Authorization": "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",  
+        "Content-Type": "application/json",
+        "Notion-Version": "2022-06-28"
+    }
+
+    def __init__(self, database_id: str):
+        """
+        Инициализация класса.
+        :param database_id: Идентификатор базы данных Notion.
+        """
+        self.database_id = database_id
+
+    def add_task(self, title: str, date: str, status: str = "Не выполнено"):
+        """
+        Добавляет новую задачу в базу данных Notion.
+        :param title: Название задачи.
+        :param date: Дата выполнения задачи (ISO 8601 формат: "YYYY-MM-DDTHH:MM:SS").
+        :param status: Статус задачи ("Не выполнено", "Выполняется", "Выполнено").
+        :return: Ответ от API.
+        """
+        url = f"{self.BASE_URL}/pages"
+        data = {
+            "parent": {"database_id": self.database_id},
+            "properties": {
+                "Название": {
                     "title": [
                         {
-                            "text": {
-                                "content": task_name
-                            }
+                            "text": {"content": title}
                         }
                     ]
                 },
-                "Due Date": {  # Дата выполнения задачи
-                    "date": {
-                        "start": task_due_date
-                    }
+                "Дата": {
+                    "date": {"start": date}
+                },
+                "Статус": {
+                    "select": {"name": status}
                 }
             }
-        )
-        return "Задача успешно добавлена в Notion!"  # Успешный результат
-    except Exception as e:
-        return f"Ошибка: {e}"  # Возвращаем текст ошибки
+        }
+
+        response = requests.post(url, headers=self.HEADERS, json=data)
+        if response.status_code == 200:
+            print("Задача успешно добавлена в Notion.")
+        else:
+            print(f"Ошибка добавления задачи: {response.text}")
+        return response.json()
+
+    def get_tasks(self):
+        """
+        Получает список задач из базы данных.
+        :return: Список задач.
+        """
+        url = f"{self.BASE_URL}/databases/{self.database_id}/query"
+        response = requests.post(url, headers=self.HEADERS)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"Ошибка получения задач: {response.text}")
+            return None
