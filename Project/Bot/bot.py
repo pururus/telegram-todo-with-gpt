@@ -5,6 +5,7 @@ import asyncio
 
 from Database import ClientsDB, Errors
 from Calendar.Calendar_module import CalendarModule
+from Notion.Notion_module import NotionModule 
 
 API_TOKEN = "8149845915:AAEoY53NSKqO5QntlTI6fwz4x-0j70e1X3o"
 
@@ -13,9 +14,10 @@ bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 router = Router()
 
-# Инициализация базы данных и Google Calendar
+# Инициализация базы данных, Google Calendar и Notion
 db = ClientsDB()  # Подключаем базу данных
 calendar = CalendarModule()  # Google Calendar
+# Notion будет инициализироваться динамически для каждого пользователя
 
 # Простая структура для временного хранения ожидаемых событий
 pending_events = {}
@@ -51,7 +53,7 @@ async def start_handler(message: types.Message):
         await message.answer("Вы уже зарегистрированы. Можете начинать отправлять запросы!")
     else:
         # Регистрируем нового пользователя
-        db.add_client(telegram_id, google_calendar_id="", notion_id="")
+        db.add_client(telegram_id, google_calendar_id="", notion_id="", notion_api_token="")
         await message.answer(
             "Привет! Для начала работы введите ссылки на ваш Google Calendar и Notion.\n\n"
             "Пример: \n"
@@ -59,7 +61,7 @@ async def start_handler(message: types.Message):
             parse_mode="Markdown"
         )
 
-# Обработчик для сохранения ссылок
+# Обработчик для сохранения ссылок и токена Notion
 @router.message()
 async def save_links_handler(message: types.Message):
     """
@@ -69,76 +71,55 @@ async def save_links_handler(message: types.Message):
     user_calendar_id = db.get_calendar_id(telegram_id)
     user_notion_id = db.get_notion_id(telegram_id)
 
-    if not user_calendar_id[0]:  # Если ссылка на календарь не указана
+    if message.text.startswith("notion_api_token:"):
+        notion_token = message.text.split(":", 1)[1].strip()
+        db.update_client_notion_token(telegram_id, notion_token)  # Сохраняем токен в базу
+        await message.answer("Ваш токен Notion сохранён. Вы готовы к работе!")
+    elif not user_calendar_id[0]:  # Если ссылка на календарь не указана
         db.add_client(telegram_id, google_calendar_id=message.text, notion_id=user_notion_id[0])
         await message.answer("Ссылка на календарь сохранена! Теперь введите ссылку на ваш Notion.")
     elif not user_notion_id[0]:  # Если ссылка на Notion не указана
-        db.add_client(telegram_id, google_calendar_id=user_calendar_id[0], notion_id=message.text)
-        await message.answer("Ссылка на Notion сохранена! Вы готовы к работе.")
+        db.update_client_notion_id(telegram_id, message.text)  # Сохраняем ссылку базы данных
+        await message.answer("Ссылка на Notion сохранена! Теперь введите ваш токен Notion.\n"
+                             "Пример: `notion_api_token: ваш_токен`", parse_mode="Markdown")
     else:
         await message.answer("Все данные уже сохранены. Вы можете отправлять запросы!")
 
-# Обработчик для создания событий через заглушку
-@router.message()
-async def event_handler(message: types.Message):
+# Обработчик для добавления задачи в Notion
+@router.message(Command("add_task"))
+async def add_task_to_notion_handler(message: types.Message):
     """
-    Передаёт сообщение пользователя заглушке для извлечения информации о событии.
-    """
-    telegram_id = str(message.from_user.id)
-    user_calendar_id = db.get_calendar_id(telegram_id)
-
-    if not user_calendar_id[0]:  # Если пользователь не настроил календарь
-        await message.answer("Пожалуйста, сначала настройте Google Calendar с помощью команды /start.")
-        return
-
-    try:
-        # Используем временную заглушку вместо GPT-парсера
-        parsed_event = mock_gpt_parser(message.text)
-        event_datetime = datetime.fromisoformat(parsed_event["datetime"])
-        pending_events[telegram_id] = {
-            "title": parsed_event["title"],
-            "datetime": event_datetime,
-            "location": parsed_event.get("location", "Не указано"),
-        }
-
-        # Уточняем информацию у пользователя
-        await message.answer(
-            f"Вы хотите запланировать '{parsed_event['title']}' на {event_datetime.strftime('%d.%m.%Y %H:%M')} "
-            f"в месте: {parsed_event.get('location', 'Не указано')}?"
-            "\n\nОтветьте 'да' для подтверждения или отправьте новое сообщение для изменения."
-        )
-    except Exception as e:
-        await message.answer("Не удалось распознать событие. Попробуйте ещё раз.")
-        print(f"Ошибка парсинга: {e}")
-
-# Обработчик для подтверждения события
-@router.message()
-async def confirm_event_handler(message: types.Message):
-    """
-    Подтверждает событие и создаёт его в Google Calendar.
+    Добавляет задачу в базу данных Notion.
     """
     telegram_id = str(message.from_user.id)
+    notion_token = db.get_notion_api_token(telegram_id)  # Извлекаем токен пользователя
 
-    if telegram_id not in pending_events:  # Если нет ожидающих подтверждения событий
-        await message.answer("Нет ожидающих подтверждения событий.")
+    if not notion_token:
+        await message.answer("Вы не настроили доступ к Notion. Введите ваш токен с помощью команды:\n"
+                             "`notion_api_token: ваш_токен`", parse_mode="Markdown")
         return
 
-    if message.text.lower() == "да":  # Пользователь подтверждает событие
-        event = pending_events[telegram_id]
-        calendar_event = {
-            "summary": event["title"],
-            "start": {"dateTime": event["datetime"].isoformat()},
-            "end": {"dateTime": (event["datetime"] + timedelta(hours=1)).isoformat()},
-            "location": event["location"],
-        }
-        db_calendar_id = db.get_calendar_id(telegram_id)[0]  # Получаем ID календаря
-        calendar.create_event(calendar_event, db_calendar_id)  # Создаём событие
+    # Подключаемся к Notion с токеном пользователя
+    notion = NotionModule(api_token=notion_token)
+    notion_database_id = db.get_notion_id(telegram_id)  # Получаем ID базы данных Notion
 
-        await message.answer(f"Событие '{event['title']}' добавлено в календарь.")
-        del pending_events[telegram_id]  # Удаляем временные данные
+    if not notion_database_id:
+        await message.answer("Вы не указали базу данных Notion. Отправьте ссылку на неё.")
+        return
+
+    # Получаем текст задачи от пользователя
+    task_title = message.text.strip()
+    response = notion.create_task(
+        database_id=notion_database_id,
+        title=task_title,
+        description="Описание задачи (можно заменить)",
+        due_date=datetime.now().isoformat()
+    )
+
+    if response.get("success"):
+        await message.answer(f"Задача '{task_title}' успешно добавлена в Notion.")
     else:
-        await message.answer("Событие отменено.")
-        del pending_events[telegram_id]
+        await message.answer("Не удалось добавить задачу в Notion. Попробуйте ещё раз.")
 
 # Главная функция для запуска бота
 async def main():
