@@ -1,6 +1,6 @@
 import requests
 
-class NotionAPI:
+class NotionModule:
     """
     Класс для работы с API Notion.
     """
