@@ -1,12 +1,16 @@
+import notion
 from aiogram import Bot, Dispatcher, Router, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from datetime import datetime, timedelta
 import asyncio
 
-from Database import ClientsDB, Errors
-from Calendar.Calendar_module import CalendarModule
-from Notion.Notion_module import NotionModule
+from Project.Database import ClientsDB, Errors
+from Project.Calendar.Calendar_module import CalendarModule
+from Project.API_notion.Notion_module import NotionModule
+
+
+
 
 API_TOKEN = "8149845915:AAEoY53NSKqO5QntlTI6fwz4x-0j70e1X3o"
 
