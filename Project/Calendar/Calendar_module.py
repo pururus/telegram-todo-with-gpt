@@ -3,12 +3,19 @@ import googleapiclient
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
+from pathlib import Path
+
+search_directory = Path('../')
+
+for file_path in search_directory.rglob("to-do-443214-ed11f676b180.json"):
+    p = file_path.resolve()
+
 class CalendarModule:
     '''
     Module for inserting events in Google Calendar
     '''
     SCOPES = ['https://www.googleapis.com/auth/calendar']
-    SERVICE_ACCOUNT_FILE = "../telegram-todo-with-gpt/Project/Calendar/to-do-443214-fbe8ee8bb440.json"
+    SERVICE_ACCOUNT_FILE = p
 
     def __init__(self):
         '''
@@ -36,4 +43,3 @@ class CalendarModule:
             return e.reason
         except Exception as e:
             return e
-
