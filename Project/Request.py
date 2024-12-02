@@ -2,10 +2,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 from datetime import datetime
+from typing import Dict
 
 class RequestType(Enum):
     EVENT = "event"
     GOAL = "goal"
+    ELSE = "else"
 
 @dataclass
 class Request:
@@ -30,6 +32,6 @@ class Request:
     type: RequestType
     client_id: str
     body: str
-    date: str
-    time: str
+    timefrom: Dict[str, str]
+    dateto: Optional[Dict[str, str]]
     extra: Optional[str]
