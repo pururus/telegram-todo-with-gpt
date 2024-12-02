@@ -4,9 +4,10 @@ import uuid
 import json
 from datetime import datetime, timedelta
 
-from Query import Query
-from Request import Request, RequestType
-from credentials import cal_credentials
+from Project.Query import Query
+from Project.Request import Request, RequestType
+
+from Project.GPT.credentials import cal_credentials
 
 import logging
 

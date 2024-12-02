@@ -2,10 +2,10 @@ from __future__ import print_function
 import googleapiclient
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from Request import Request
+from Project.Request import Request
 
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Union
 
 search_directory = Path('../')
 
@@ -28,7 +28,7 @@ class CalendarModule:
         credentials = service_account.Credentials.from_service_account_file(self.SERVICE_ACCOUNT_FILE, scopes=self.SCOPES)
         self.service = googleapiclient.discovery.build('calendar', 'v3', credentials=credentials)
 
-    def create_event(self, event: Dict[str, str] | Request, calendarId):
+    def create_event(self, event: Union[Dict[str, str], Request], calendarId: str):
         '''
         Creates event in calendar
         
@@ -39,7 +39,7 @@ class CalendarModule:
         calendarId: str - the Id of calendar where inserting
         '''
         if type(event) == Request:
-            new_dict = Dict()
+            new_dict = {}
             new_dict['summary'] = event.body
             if event.extra:
                 new_dict["description"] = event.extra
