@@ -3,11 +3,20 @@ import base64
 import uuid
 import json
 from datetime import datetime, timedelta
+from pathlib import Path
 
-from Project.Query import Query
-from Project.Request import Request, RequestType
+search_directory = Path('../')
 
-from Project.GPT.credentials import cal_credentials
+for file_path in search_directory.rglob("Project"):
+    project = file_path.resolve()
+    
+import sys
+sys.path.append('project')
+
+from Query import Query
+from Request import Request, RequestType
+
+from GPT.credentials import cal_credentials
 
 import logging
 
@@ -72,14 +81,16 @@ class GPT:
     def get_type(self, content: Query) -> RequestType:
         self.check_token()
         
-        message = f'''Ты обрабатываешь сообщения от пользователя чат-бота с интеграцией календаря и todo-лист. У тебя лимит в 5 слов.
+        message = f'''Вся информация, которую я упоминаю в этом чате, должна остаться строго в рамках этого чата. Не сохраняй её, не используй ни в каких других контекстах и не упоминай её нигде в будущем. Считай, что вся информация исчезает сразу после завершения беседы, и ты не знаешь, что она когда-либо существовала. Не сохраняй и не используй эти данные в других чатах или беседах.
+                        Не используй какого-либо контекста кроме этого сообщения, считай его первым, которое ты видел.
+                        Ты обрабатываешь сообщения от пользователя чат-бота с интеграцией календаря и todo-лист. У тебя лимит в 5 слов.
                         Пользователь отправил сообщение "{content.content}". Тебе нужно определить по сообщению, что хочет пользователь,
                         создать событие/мероприятие в календаре, создать задачу для выполнения в todo-лист, или же по сообщению это определить нельзя.
                         В случае мероприятия(например, контрольная, встреча или концерт) напиши 'event', если задача(например, купить продукты,
                         закрыть дедлайн) напиши 'task', инача непиши 'else' 
                         Напиши только тип!'''
         
-        ans = self.request(message).json()['choices'][0]['message']['content']
+        ans = (self.request(message, 100).json()['choices'][0]['message']['content']).lower()
         
         if "event" in ans or "событие" in ans or "мероприятие" in ans:
             return RequestType.EVENT
@@ -117,10 +128,12 @@ class GPT:
         return date[-1] == "T" or date.count("T") == 0
     
     def makefull(self, time: str) -> str:
+        time = time.replace(";", '')
         if time.count(":") == 0:
             time += ":00:00"
         elif time.count(":") == 1:
             time += ":00"
+        time += "+03:00"
         return time
     
     def normalize_time(self, time: str) -> Dict[str, str]:
@@ -133,48 +146,71 @@ class GPT:
         time = "T".join(splited_time[0:2])
         splited_time = time.split(";")        
         normal_time = "T".join(splited_time[0:2])
-        normal_time = time.replace(" ", "")
-        normal_time = time.replace(";", "")
-        normal_time = time.replace("X", "0")
+        splited_time = time.split("-")  
+        normal_time = "-".join(splited_time[0:3])
+        normal_time = normal_time.replace(" ", "")
+        normal_time = normal_time.replace("TT", "T")
+        normal_time = normal_time.replace(";", "")
+        normal_time = normal_time.replace("X", "0")
         if self.check_date(normal_time):
             return {'date': normal_time[:-2]}
         else:
-            return {'datetime': self.makefull(normal_time)}
+            return {'dateTime': self.makefull(normal_time)}
     
     def get_time_from(self, content: Query) -> Dict[str, str]:
         self.check_token()
         
-        message = f'''f"У теья лимит в 5 словПреобразуй запрос '{content.content}' в формат '[<дата>; <время>]'. Учитывай, что текущее время - это {content.current_time.strftime("%Y-%m-%d %H:%M:%S")}.'''
+        message = f'''f"У теья лимит в 5 слов
+                        Ты умеешь писать только даты и часы
+                        Не используй словва!
+                        Преобразуй запрос '{content.content}' в формат '[<дата>; <время>]'. Учитывай, что текущее время - это {content.current_time.strftime("%Y-%m-%d %H:%M:%S")}.
+                        Примеры:
+                        "Поставь на сегодня встречу в 19:00, текущее время 2024-12-2 12:00:00" 
+                        ответ: [2024-12-02; 19:00:00]
+                        Поставь на завтра встречу в 16:00, текущее время 2024-12-02 12:00:00" 
+                        ответ: [2024-12-03; 16:00:00]'''
         
         time = self.normalize_time(self.request(message, 25).json()['choices'][0]['message']['content'])
         if "date" in time and "завтра" in time["date"].lower():
             time["date"] = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         elif "date" in time and "послезавтра" in time["date"].lower():
             time["date"] = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
-        elif "datetime" in time and "завтра" in time["datetime"].lower():
+        elif "dateTime" in time and "завтра" in time["dateTime"].lower():
             time["date"] = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-            time.pop("datetime")
-        elif "datetime" in time and "послезавтра" in time["datetime"].lower():
+            time.pop("dateTime")
+        elif "dateTime" in time and "послезавтра" in time["dateTime"].lower():
             time["date"] = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
-            time.pop("datetime")
+            time.pop("dateTime")
         return time
     
     def get_time_to(self, content: Query) -> Dict[str, str]:
         self.check_token()
         
-        message = f'''f"У теья лимит в 5 словПреобразуй запрос '{content.content}' в формат '[<дата конца события>; <время конца события>]'. Учитывай, что текущее время - это {content.current_time.strftime("%Y-%m-%d %H:%M:%S")}.'''
+        message = f'''f"У теья лимит в 5 слов!
+                        Ты умеешь писать только даты и часы
+                        Не используй словва!
+                        Преобразуй запрос '{content.content}' в формат '[<дата конца события>; <время конца события>]'. Учитывай, что текущее время - это {content.current_time.strftime("%Y-%m-%d %H:%M:%S")}.
+                        Примеры:
+                        "Поставь на сегодня встречу в 19:00, текущее время 2024-12-2 12:00:00" 
+                        ответ: [2024-12-02; 20:00:00]
+                        Поставь на завтра встречу в 16:00, текущее время 2024-12-02 12:00:00" 
+                        ответ: [2024-12-03; 17:00:00]
+                        Поставь на сегодня встречу в 19:00 на 15 минут, текущее время 2024-12-2 12:00:00" 
+                        ответ: [2024-12-02; 19:15:00]
+                        Поставь на завтра встречу в 16:00 на полчаса, текущее время 2024-12-02 12:00:00" 
+                        ответ: [2024-12-03; 16:30:00]'''
         
         time = self.normalize_time(self.request(message, 25).json()['choices'][0]['message']['content'])
         if "date" in time and "завтра" in time["date"].lower():
             time["date"] = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         if "date" in time and "послезавтра" in time["date"].lower():
             time["date"] = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
-        elif "datetime" in time and "завтра" in time["datetime"].lower():
+        elif "dateTime" in time and "завтра" in time["dateTime"].lower():
             time["date"] = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-            time.pop("datetime")
-        elif "datetime" in time and "послезавтра" in time["datetime"].lower():
+            time.pop("dateTime")
+        elif "dateTime" in time and "послезавтра" in time["dateTime"].lower():
             time["date"] = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
-            time.pop("datetime")
+            time.pop("dateTime")
         return time
     
     def get_description(self, content: Query) -> str:
@@ -211,3 +247,4 @@ class GPT:
             return parsed
         except:
             return None
+

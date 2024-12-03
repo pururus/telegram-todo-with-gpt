@@ -2,8 +2,6 @@ from __future__ import print_function
 import googleapiclient
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from Project.Request import Request
-
 from pathlib import Path
 from typing import Dict, Union
 
@@ -11,6 +9,14 @@ search_directory = Path('../')
 
 for file_path in search_directory.rglob("to-do-443214-ed11f676b180.json"):
     p = file_path.resolve()
+
+for file_path in search_directory.rglob("Project"):
+    project = file_path.resolve()
+    
+import sys
+sys.path.append('project')
+
+from Request import Request
 
 class CalendarModule:
     '''

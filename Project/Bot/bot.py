@@ -6,12 +6,21 @@ from aiogram.fsm.storage.memory import MemoryStorage
 import asyncio
 from datetime import datetime, timedelta
 
-from Project.Database.Database import ClientsDB
-from Project.Calendar.Calendar_module import CalendarModule
-from Project.API_notion.Notion_module import NotionModule
-from Project.GPT.GPT_module import GPT
-from Project.Query import Query
-from Project.Request import RequestType
+from pathlib import Path
+
+search_directory = Path('../')
+for file_path in search_directory.rglob("Project"):
+    project = file_path.resolve()
+
+import sys
+sys.path.append('project')
+
+from Database import ClientsDB
+from Calendar.Calendar_module import CalendarModule
+from API_notion.Notion_module import NotionModule
+from GPT.GPT_module import GPT
+from Query import Query
+from Request import RequestType
 
 API_TOKEN = "8149845915:AAEoY53NSKqO5QntlTI6fwz4x-0j70e1X3o"
 NOTION_API_TOKEN = "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"
@@ -148,36 +157,12 @@ async def handle_user_message(message: types.Message, state: FSMContext):
             content=message.text.strip()
         )
         parsed_request = gpt_parser.parse_message(content)
+        print(content)
+        print(parsed_request)
         if parsed_request and parsed_request.type == RequestType.EVENT:
             # Добавляем событие в Google Calendar
             user_calendar_id = calendar_id
-            event = {
-                "summary": parsed_request.body or "Без названия",
-                "start": {},
-                "end": {},
-                "description": parsed_request.extra or ""
-            }
-
-            if 'datetime' in parsed_request.timefrom:
-                event['start']['dateTime'] = parsed_request.timefrom['datetime']
-            elif 'date' in parsed_request.timefrom:
-                event['start']['date'] = parsed_request.timefrom['date']
-
-            if parsed_request.dateto:
-                if 'datetime' in parsed_request.dateto:
-                    event['end']['dateTime'] = parsed_request.dateto['datetime']
-                elif 'date' in parsed_request.dateto:
-                    event['end']['date'] = parsed_request.dateto['date']
-            else:
-                # Если время окончания не указано, добавляем 1 час к стартовому времени
-                if 'dateTime' in event['start']:
-                    start_time = datetime.fromisoformat(event['start']['dateTime'])
-                    end_time = start_time + timedelta(hours=1)
-                    event['end']['dateTime'] = end_time.isoformat()
-                elif 'date' in event['start']:
-                    event['end']['date'] = event['start']['date']
-
-            response = calendar.create_event(event, user_calendar_id)
+            response = calendar.create_event(parsed_request, user_calendar_id)
             if response is None:
                 await message.answer(f"Событие '{parsed_request.body}' успешно добавлено в Google Calendar.")
             else:
