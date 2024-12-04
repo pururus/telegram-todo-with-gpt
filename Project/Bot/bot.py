@@ -220,5 +220,5 @@ async def handle_user_message(message: types.Message, state: FSMContext):
 
 # Запуск бота
 if __name__ == "__main__":
-    print("Бот запущен!")
+    print("ГООООООЙДАА!!")
     asyncio.run(dp.start_polling(bot))
