@@ -1,4 +1,4 @@
-# проходит
+# работает
 import unittest
 from unittest.mock import patch
 from datetime import datetime
