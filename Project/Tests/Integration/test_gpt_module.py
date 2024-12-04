@@ -1,3 +1,5 @@
+# не работает
+
 import unittest
 from Project.GPT.GPT_module import GPT
 
