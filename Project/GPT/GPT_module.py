@@ -1,214 +1,222 @@
-import requests
-import base64
-import uuid
-import json
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+import asyncio
 from datetime import datetime, timedelta
+
 from pathlib import Path
-from typing import Dict, Optional
 
-from Project.Query import Query
-from Project.Request import Request, RequestType
-from Project.GPT.credentials import cal_credentials
+search_directory = Path('../')
+for file_path in search_directory.rglob("Project"):
+    project = file_path.resolve()
 
-import logging
+import sys
+sys.path.append('project')
 
-logging.captureWarnings(True)
+from Database import ClientsDB
+from Calendar.Calendar_module import CalendarModule
+from API_notion.Notion_module import NotionModule
+from GPT.GPT_module import GPT
+from Query import Query
+from Request import RequestType
 
-class GPT:
-    _token = None
-    _url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
+API_TOKEN = "8149845915:AAEoY53NSKqO5QntlTI6fwz4x-0j70e1X3o"
+NOTION_API_TOKEN = "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"
 
-    def get_token(self, auth_token, scope='GIGACHAT_API_PERS'):
-        """
-        Получение токена для авторизации в API.
-        """
-        rq_uid = str(uuid.uuid4())
-        url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+# Создаём объект бота и диспетчера
+bot = Bot(token=API_TOKEN)
+storage = MemoryStorage()  # Хранилище состояний в памяти
+dp = Dispatcher(storage=storage)
 
-        headers = {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json',
-            'RqUID': rq_uid,
-            'Authorization': f'Basic {auth_token}'
-        }
-        payload = {
-            'scope': scope
-        }
+# Инициализация базы данных, Google Calendar и GPT парсера
+db = ClientsDB()  # Подключаем базу данных
+calendar = CalendarModule()  # Модуль для работы с Google Calendar
+gpt_parser = GPT()  # Инициализация GPT парсера
 
-        try:
-            response = requests.post(url, headers=headers, data=payload, verify=False)
-            if response.status_code == 200:
-                return response.json().get('access_token', None)
+# Определение состояний для регистрации и действий
+class RegistrationStates(StatesGroup):
+    waiting_for_google_calendar_id = State()
+    waiting_for_notion_id = State()
+
+class UserStates(StatesGroup):
+    waiting_for_event = State()
+    waiting_for_task = State()
+
+def get_main_menu_keyboard():
+    """
+    Создаёт клавиатуру с кнопками для главного меню.
+    """
+    keyboard = types.ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                types.KeyboardButton(text="Добавить событие"),
+                types.KeyboardButton(text="Добавить задачу")
+            ]
+        ],
+        resize_keyboard=True
+    )
+    return keyboard
+
+@dp.message(Command("start"))
+async def start_handler(message: types.Message, state: FSMContext):
+    """
+    Обрабатывает команду /start.
+    """
+    telegram_id = str(message.from_user.id)
+
+    calendar_id_row = db.get_calendar_id(telegram_id)
+    calendar_id = calendar_id_row[0] if calendar_id_row else None
+
+    notion_id_row = db.get_notion_id(telegram_id)
+    notion_id = notion_id_row[0] if notion_id_row else None
+
+    if calendar_id and notion_id:
+        # Если пользователь уже зарегистрирован
+        await message.answer("Вы уже зарегистрированы.", reply_markup=get_main_menu_keyboard())
+    else:
+        # Начинаем процесс регистрации
+        await message.answer(
+            "Привет! Для начала работы нам нужны некоторые данные.\n"
+            "Пожалуйста, отправьте ваш Google Calendar ID."
+        )
+        await state.set_state(RegistrationStates.waiting_for_google_calendar_id)
+
+@dp.message(RegistrationStates.waiting_for_google_calendar_id)
+async def process_google_calendar_id(message: types.Message, state: FSMContext):
+    """
+    Обрабатывает получение Google Calendar ID.
+    """
+    google_calendar_id = message.text.strip()
+    await state.update_data(google_calendar_id=google_calendar_id)
+    await message.answer("Спасибо! Теперь отправьте ваш Notion Database ID.")
+    await state.set_state(RegistrationStates.waiting_for_notion_id)
+
+@dp.message(RegistrationStates.waiting_for_notion_id)
+async def process_notion_id(message: types.Message, state: FSMContext):
+    """
+    Обрабатывает получение Notion ID.
+    """
+    notion_id = message.text.strip()
+    data = await state.get_data()
+    google_calendar_id = data.get('google_calendar_id')
+    telegram_id = str(message.from_user.id)
+
+    # Добавляем пользователя в базу данных
+    result = db.add_client(telegram_id, google_calendar_id, notion_id)
+    if result == "integrityError":  # Проверяем на уникальность
+        await message.answer("Вы уже зарегистрированы.", reply_markup=get_main_menu_keyboard())
+    elif isinstance(result, Exception):
+        await message.answer("Произошла ошибка при регистрации. Попробуйте позже.")
+    else:
+        await message.answer("Регистрация завершена! Выберите действие:", reply_markup=get_main_menu_keyboard())
+
+    await state.clear()
+
+@dp.message(Command("unreg"))
+async def unreg_handler(message: types.Message):
+    """
+    Обрабатывает команду /unreg для удаления данных пользователя.
+    """
+    telegram_id = str(message.from_user.id)
+
+    # Удаляем пользователя из базы данных
+    cursor = db.conn.cursor()
+    cursor.execute('DELETE FROM t_client WHERE telegram_id = ?', (telegram_id,))
+    db.conn.commit()
+    cursor.close()
+
+    await message.answer("Вы успешно отписались. Для повторной регистрации используйте команду /start.")
+
+@dp.message()
+async def handle_user_message(message: types.Message, state: FSMContext):
+    """
+    Обрабатывает сообщения от пользователя после регистрации.
+    """
+    telegram_id = str(message.from_user.id)
+
+    calendar_id_row = db.get_calendar_id(telegram_id)
+    calendar_id = calendar_id_row[0] if calendar_id_row else None
+
+    notion_id_row = db.get_notion_id(telegram_id)
+    notion_id = notion_id_row[0] if notion_id_row else None
+
+    if not calendar_id or not notion_id:
+        # Пользователь не завершил регистрацию
+        await message.answer("Пожалуйста, отправьте команду /start для начала работы.")
+        return
+
+    current_state = await state.get_state()
+
+    if current_state == UserStates.waiting_for_event.state:
+        # Обрабатываем ввод события
+        content = Query(
+            client_id=telegram_id,
+            current_time=datetime.now(),
+            content=message.text.strip()
+        )
+        parsed_request = gpt_parser.parse_message(content)
+        print(content)
+        print(parsed_request)
+        if parsed_request and parsed_request.type == RequestType.EVENT:
+            # Добавляем событие в Google Calendar
+            user_calendar_id = calendar_id
+            response = calendar.create_event(parsed_request, user_calendar_id)
+            if response is None:
+                await message.answer(f"Событие '{parsed_request.body}' успешно добавлено в Google Calendar.")
             else:
-                raise Exception(f"Failed to fetch token: {response.text}")
-        except requests.RequestException as e:
-            raise Exception(f"Ошибка получения токена: {str(e)}")
+                await message.answer(f"Не удалось добавить событие в Google Calendar. Ошибка: {response}")
 
-    def check_token(self):
-        """
-        Проверяет наличие токена, если его нет, запрашивает новый.
-        """
-        encoded_credentials = base64.b64encode(cal_credentials.encode('utf-8')).decode('utf-8')
-
-        if self._token is None:
-            self._token = self.get_token(encoded_credentials)
-            if not self._token:
-                raise Exception("Не удалось получить токен.")
-
-    def request(self, message: str, max_tokens: int = 50, temp=1) -> requests.Response:
-        """
-        Выполняет запрос к API GigaChat.
-        """
-        self.check_token()  # Убедимся, что токен валиден
-
-        payload = json.dumps({
-            "model": "GigaChat",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": message
-                }
-            ],
-            "stream": False,
-            "max_tokens": max_tokens,
-            "temperature": temp  # Исправлено
-        })
-
-        headers = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Authorization': f'Bearer {self._token}'
-        }
-
-        try:
-            response = requests.post(self._url, headers=headers, data=payload, verify=False)
-            response.raise_for_status()  # Проверка HTTP-статуса
-            return response
-        except requests.RequestException as e:
-            raise Exception(f"Ошибка запроса: {str(e)}")
-
-    def get_type(self, content: Query) -> RequestType:
-        """
-        Определяет тип запроса: событие (event), задача (task), или неизвестный (else).
-        """
-        self.check_token()
-
-        message = f'''Пользователь отправил сообщение "{content.content}". Определи тип: 'event', 'task' или 'else'.'''
-
-        ans = (self.request(message, 100).json()['choices'][0]['message']['content']).lower()
-
-        if "event" in ans:
-            return RequestType.EVENT
-        elif "task" in ans:
-            return RequestType.GOAL
+            # Сбрасываем состояние и показываем главное меню
+            await state.clear()
+            await message.answer("Что хотите сделать дальше?", reply_markup=get_main_menu_keyboard())
         else:
-            return RequestType.ELSE
+            await message.answer("Не удалось распознать событие. Пожалуйста, введите информацию о событии еще раз.")
 
-    def get_event_content(self, content: Query) -> str:
-        """
-        Извлекает название события из сообщения пользователя.
-        """
-        self.check_token()
+    elif current_state == UserStates.waiting_for_task.state:
+        # Обрабатываем ввод задачи
+        content = Query(
+            client_id=telegram_id,
+            current_time=datetime.now(),
+            content=message.text.strip()
+        )
+        parsed_request = gpt_parser.parse_message(content)
+        if parsed_request and parsed_request.type == RequestType.GOAL:
+            # Добавляем задачу в Notion
+            notion_database_id = notion_id
+            notion_api_token = NOTION_API_TOKEN  # Используем общий токен
 
-        message = f'''Определи название события из сообщения "{content.content}".'''
+            # Создаем экземпляр NotionModule
+            notion = NotionModule(database_id=notion_database_id)
+            task_title = parsed_request.body
+            due_date = parsed_request.timefrom.get('datetime', datetime.now().isoformat())
 
-        return self.request(message, 10).json()['choices'][0]['message']['content']
+            response = notion.add_task(title=task_title, date=due_date)
 
-    def get_task_content(self, content: Query) -> str:
-        """
-        Извлекает формулировку задачи из сообщения пользователя.
-        """
-        self.check_token()
+            if 'id' in response:
+                await message.answer(f"Задача '{task_title}' успешно добавлена в Notion.")
+            else:
+                await message.answer("Не удалось добавить задачу в Notion. Попробуйте ещё раз.")
 
-        message = f'''Определи формулировку задачи из сообщения "{content.content}".'''
-
-        return self.request(message, 15).json()['choices'][0]['message']['content']
-
-    def check_date(self, date: str) -> bool:
-        """
-        Проверяет корректность формата даты.
-        """
-        return date[-1] == "T" or date.count("T") == 0
-
-    def makefull(self, time: str) -> str:
-        """
-        Преобразует время в полный формат.
-        """
-        time = time.replace(";", '')
-        if time.count(":") == 0:
-            time += ":00:00"
-        elif time.count(":") == 1:
-            time += ":00"
-        time += "+03:00"
-        return time
-
-    def normalize_time(self, time: str) -> Dict[str, str]:
-        """
-        Преобразует время в корректный формат для API.
-        """
-        time = time.replace("[", "").replace("]", "").replace("<", "").replace(">", "")
-        splited_time = time.split(" ")
-        time = "T".join(splited_time[:2])
-        normal_time = time.replace(" ", "").replace("TT", "T").replace(";", "").replace("X", "0")
-        if self.check_date(normal_time):
-            return {'date': normal_time[:-2]}
+            # Сбрасываем состояние и показываем главное меню
+            await state.clear()
+            await message.answer("Что хотите сделать дальше?", reply_markup=get_main_menu_keyboard())
         else:
-            return {'dateTime': self.makefull(normal_time)}
+            await message.answer("Не удалось распознать задачу. Пожалуйста, введите информацию о задаче еще раз.")
 
-    def get_time_from(self, content: Query) -> Dict[str, str]:
-        """
-        Извлекает начальное время из сообщения.
-        """
-        self.check_token()
+    else:
+        # Не в состоянии ожидания, проверяем выбор действия
+        if message.text == "Добавить событие":
+            await message.answer("Пожалуйста, введите информацию о событии.")
+            await state.set_state(UserStates.waiting_for_event)
+        elif message.text == "Добавить задачу":
+            await message.answer("Пожалуйста, введите информацию о задаче.")
+            await state.set_state(UserStates.waiting_for_task)
+        else:
+            await message.answer("Пожалуйста, выберите действие из меню.", reply_markup=get_main_menu_keyboard())
 
-        message = f'''Приведи начальное время из сообщения "{content.content}" в формат '[<дата>; <время>]'.'''
-
-        time = self.normalize_time(self.request(message, 25).json()['choices'][0]['message']['content'])
-        return time
-
-    def get_time_to(self, content: Query) -> Dict[str, str]:
-        """
-        Извлекает конечное время из сообщения.
-        """
-        self.check_token()
-
-        message = f'''Приведи конечное время из сообщения "{content.content}" в формат '[<дата>; <время>]'.'''
-
-        time = self.normalize_time(self.request(message, 25).json()['choices'][0]['message']['content'])
-        return time
-
-    def get_description(self, content: Query) -> str:
-        """
-        Извлекает описание события из сообщения.
-        """
-        self.check_token()
-
-        message = f'''Определи описание события из сообщения "{content.content}".'''
-
-        return self.request(message, 10).json()['choices'][0]['message']['content']
-
-    def parse_message(self, content: Query) -> Optional[Request]:
-        """
-        Основной метод парсинга сообщения пользователя.
-        """
-        try:
-            parsed = Request(RequestType.ELSE, "", "", {}, None, None)
-            parsed.type = self.get_type(content)
-
-            if parsed.type == RequestType.EVENT:
-                parsed.body = self.get_event_content(content)
-                parsed.extra = self.get_description(content)
-            elif parsed.type == RequestType.GOAL:
-                parsed.body = self.get_task_content(content)
-
-            parsed.timefrom = self.get_time_from(content)
-            parsed.dateto = self.get_time_to(content)
-            parsed.client_id = content.client_id
-
-            if not parsed.body or not parsed.timefrom:
-                return None
-
-            return parsed
-        except Exception as e:
-            print(f"Ошибка парсинга сообщения: {e}")
-            return None
+# Запуск бота
+if __name__ == "__main__":
+    print("Бот запущен!")
+    asyncio.run(dp.start_polling(bot))
