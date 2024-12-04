@@ -1,222 +1,251 @@
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.storage.memory import MemoryStorage
-import asyncio
+import requests
+import base64
+import uuid
+import json
 from datetime import datetime, timedelta
-
 from pathlib import Path
 
 search_directory = Path('../')
+
 for file_path in search_directory.rglob("Project"):
     project = file_path.resolve()
 
 import sys
+
 sys.path.append('project')
 
-from Database import ClientsDB
-from Calendar.Calendar_module import CalendarModule
-from API_notion.Notion_module import NotionModule
-from GPT.GPT_module import GPT
-from Query import Query
-from Request import RequestType
+from Project.Query import Query
+from Project.Request import Request, RequestType
 
-API_TOKEN = "8149845915:AAEoY53NSKqO5QntlTI6fwz4x-0j70e1X3o"
-NOTION_API_TOKEN = "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"
+from Project.GPT.credentials import cal_credentials
 
-# Создаём объект бота и диспетчера
-bot = Bot(token=API_TOKEN)
-storage = MemoryStorage()  # Хранилище состояний в памяти
-dp = Dispatcher(storage=storage)
+import logging
 
-# Инициализация базы данных, Google Calendar и GPT парсера
-db = ClientsDB()  # Подключаем базу данных
-calendar = CalendarModule()  # Модуль для работы с Google Calendar
-gpt_parser = GPT()  # Инициализация GPT парсера
+from typing import Dict, Optional
 
-# Определение состояний для регистрации и действий
-class RegistrationStates(StatesGroup):
-    waiting_for_google_calendar_id = State()
-    waiting_for_notion_id = State()
+logging.captureWarnings(True)
 
-class UserStates(StatesGroup):
-    waiting_for_event = State()
-    waiting_for_task = State()
 
-def get_main_menu_keyboard():
-    """
-    Создаёт клавиатуру с кнопками для главного меню.
-    """
-    keyboard = types.ReplyKeyboardMarkup(
-        keyboard=[
-            [
-                types.KeyboardButton(text="Добавить событие"),
-                types.KeyboardButton(text="Добавить задачу")
-            ]
-        ],
-        resize_keyboard=True
-    )
-    return keyboard
+class GPT:
+    _token = None
+    _url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
 
-@dp.message(Command("start"))
-async def start_handler(message: types.Message, state: FSMContext):
-    """
-    Обрабатывает команду /start.
-    """
-    telegram_id = str(message.from_user.id)
+    def get_token(self, auth_token, scope='GIGACHAT_API_PERS'):
+        rq_uid = str(uuid.uuid4())
+        url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
 
-    calendar_id_row = db.get_calendar_id(telegram_id)
-    calendar_id = calendar_id_row[0] if calendar_id_row else None
+        headers = {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'RqUID': rq_uid,
+            'Authorization': f'Basic {auth_token}'
+        }
+        payload = {
+            'scope': scope
+        }
 
-    notion_id_row = db.get_notion_id(telegram_id)
-    notion_id = notion_id_row[0] if notion_id_row else None
+        try:
+            response = requests.post(url, headers=headers, data=payload, verify=False)
+            return response
+        except requests.RequestException as e:
+            print(f"Ошибка: {str(e)}")
+            return -1
 
-    if calendar_id and notion_id:
-        # Если пользователь уже зарегистрирован
-        await message.answer("Вы уже зарегистрированы.", reply_markup=get_main_menu_keyboard())
-    else:
-        # Начинаем процесс регистрации
-        await message.answer(
-            "Привет! Для начала работы нам нужны некоторые данные.\n"
-            "Пожалуйста, отправьте ваш Google Calendar ID."
-        )
-        await state.set_state(RegistrationStates.waiting_for_google_calendar_id)
+    def check_token(self):
+        encoded_credentials = base64.b64encode(cal_credentials.encode('utf-8')).decode('utf-8')
 
-@dp.message(RegistrationStates.waiting_for_google_calendar_id)
-async def process_google_calendar_id(message: types.Message, state: FSMContext):
-    """
-    Обрабатывает получение Google Calendar ID.
-    """
-    google_calendar_id = message.text.strip()
-    await state.update_data(google_calendar_id=google_calendar_id)
-    await message.answer("Спасибо! Теперь отправьте ваш Notion Database ID.")
-    await state.set_state(RegistrationStates.waiting_for_notion_id)
+        if self._token == None:
+            self.token = self.get_token(encoded_credentials).json()['access_token']
 
-@dp.message(RegistrationStates.waiting_for_notion_id)
-async def process_notion_id(message: types.Message, state: FSMContext):
-    """
-    Обрабатывает получение Notion ID.
-    """
-    notion_id = message.text.strip()
-    data = await state.get_data()
-    google_calendar_id = data.get('google_calendar_id')
-    telegram_id = str(message.from_user.id)
+    def request(self, message: str, max_tockens: int = 50, temp=1) -> str:
+        payload = json.dumps({
+            "model": "GigaChat",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": message
+                }
+            ],
+            "stream": False,
+            "max_tokens": max_tockens,
+            "temerature": temp
+        })
 
-    # Добавляем пользователя в базу данных
-    result = db.add_client(telegram_id, google_calendar_id, notion_id)
-    if result == "integrityError":  # Проверяем на уникальность
-        await message.answer("Вы уже зарегистрированы.", reply_markup=get_main_menu_keyboard())
-    elif isinstance(result, Exception):
-        await message.answer("Произошла ошибка при регистрации. Попробуйте позже.")
-    else:
-        await message.answer("Регистрация завершена! Выберите действие:", reply_markup=get_main_menu_keyboard())
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': f'Bearer {self.token}'
+        }
 
-    await state.clear()
+        response = requests.request("POST", self._url, headers=headers, data=payload, verify=False)
+        return response
 
-@dp.message(Command("unreg"))
-async def unreg_handler(message: types.Message):
-    """
-    Обрабатывает команду /unreg для удаления данных пользователя.
-    """
-    telegram_id = str(message.from_user.id)
+    def get_type(self, content: Query) -> RequestType:
+        self.check_token()
 
-    # Удаляем пользователя из базы данных
-    cursor = db.conn.cursor()
-    cursor.execute('DELETE FROM t_client WHERE telegram_id = ?', (telegram_id,))
-    db.conn.commit()
-    cursor.close()
+        message = f'''Вся информация, которую я упоминаю в этом чате, должна остаться строго в рамках этого чата. Не сохраняй её, не используй ни в каких других контекстах и не упоминай её нигде в будущем. Считай, что вся информация исчезает сразу после завершения беседы, и ты не знаешь, что она когда-либо существовала. Не сохраняй и не используй эти данные в других чатах или беседах.
+                        Не используй какого-либо контекста кроме этого сообщения, считай его первым, которое ты видел.
+                        Ты обрабатываешь сообщения от пользователя чат-бота с интеграцией календаря и todo-лист. У тебя лимит в 5 слов.
+                        Пользователь отправил сообщение "{content.content}". Тебе нужно определить по сообщению, что хочет пользователь,
+                        создать событие/мероприятие в календаре, создать задачу для выполнения в todo-лист, или же по сообщению это определить нельзя.
+                        В случае мероприятия(например, контрольная, встреча или концерт) напиши 'event', если задача(например, купить продукты,
+                        закрыть дедлайн) напиши 'task', инача непиши 'else' 
+                        Напиши только тип!'''
 
-    await message.answer("Вы успешно отписались. Для повторной регистрации используйте команду /start.")
+        ans = (self.request(message, 100).json()['choices'][0]['message']['content']).lower()
 
-@dp.message()
-async def handle_user_message(message: types.Message, state: FSMContext):
-    """
-    Обрабатывает сообщения от пользователя после регистрации.
-    """
-    telegram_id = str(message.from_user.id)
+        if "event" in ans or "событие" in ans or "мероприятие" in ans:
+            return RequestType.EVENT
+        elif "todo" in ans or "task" in ans:
+            return RequestType.GOAL
+        else:
+            return RequestType.ELSE
 
-    calendar_id_row = db.get_calendar_id(telegram_id)
-    calendar_id = calendar_id_row[0] if calendar_id_row else None
+    def get_event_content(self, content: Query) -> str:
+        self.check_token()
 
-    notion_id_row = db.get_notion_id(telegram_id)
-    notion_id = notion_id_row[0] if notion_id_row else None
+        message = f'''Ты обрабатываешь сообщения от пользователя чат-бота с интеграцией календаря.
+                        Пользователь отправил сообщение "{content.content}". Пользователь хочет поставить это
+                        событие в календарь. Тебе нужно определить и выписать название этого события максимально полноценно.
+                        Например сообщение "поставь на завтра встречу с олегом в 7" должно обрабатываться тобой
+                        в "Встреча с Олегом". 
+                        Напиши только название события!'''
 
-    if not calendar_id or not notion_id:
-        # Пользователь не завершил регистрацию
-        await message.answer("Пожалуйста, отправьте команду /start для начала работы.")
-        return
+        return self.request(message, 10).json()['choices'][0]['message']['content']
 
-    current_state = await state.get_state()
+    def get_task_content(self, content: Query) -> str:
+        self.check_token()
 
-    if current_state == UserStates.waiting_for_event.state:
-        # Обрабатываем ввод события
-        content = Query(
-            client_id=telegram_id,
-            current_time=datetime.now(),
-            content=message.text.strip()
-        )
-        parsed_request = gpt_parser.parse_message(content)
-        print(content)
-        print(parsed_request)
-        if parsed_request and parsed_request.type == RequestType.EVENT:
-            # Добавляем событие в Google Calendar
-            user_calendar_id = calendar_id
-            response = calendar.create_event(parsed_request, user_calendar_id)
-            if response is None:
-                await message.answer(f"Событие '{parsed_request.body}' успешно добавлено в Google Calendar.")
+        message = f'''Ты обрабатываешь сообщения от пользователя чат-бота с интеграцией todo-листа.
+                        Пользователь отправил сообщение "{content.content}". Пользователь хочет поставить эту
+                        таску в todolist. Тебе нужно определить и выписать формулировку этой задачи максимально полноценно.
+                        Например сообщение "мне нужно купить продукты завтра" должно обрабатываться тобой
+                        в "Купить продукты". 
+                        Напиши только формулировку задачи!
+                        Не упоминай время и день!'''
+
+        return self.request(message, 15).json()['choices'][0]['message']['content']
+
+    def check_date(self, date: str) -> bool:
+        return date[-1] == "T" or date.count("T") == 0
+
+    def makefull(self, time: str) -> str:
+        time = time.replace(";", '')
+        if time.count(":") == 0:
+            time += ":00:00"
+        elif time.count(":") == 1:
+            time += ":00"
+        time += "+03:00"
+        return time
+
+    def normalize_time(self, time: str) -> Dict[str, str]:
+        time = time.replace("[", "")
+        time = time.replace("]", "")
+        time = time.replace("<", "")
+        time = time.replace(">", "")
+
+        splited_time = time.split(" ")
+        time = "T".join(splited_time[0:2])
+        splited_time = time.split(";")
+        normal_time = "T".join(splited_time[0:2])
+        splited_time = time.split("-")
+        normal_time = "-".join(splited_time[0:3])
+        normal_time = normal_time.replace(" ", "")
+        normal_time = normal_time.replace("TT", "T")
+        normal_time = normal_time.replace(";", "")
+        normal_time = normal_time.replace("X", "0")
+        if self.check_date(normal_time):
+            return {'date': normal_time[:-2]}
+        else:
+            return {'dateTime': self.makefull(normal_time)}
+
+    def get_time_from(self, content: Query) -> Dict[str, str]:
+        self.check_token()
+
+        message = f'''f"У теья лимит в 5 слов
+                        Ты умеешь писать только даты и часы
+                        Не используй словва!
+                        Преобразуй запрос '{content.content}' в формат '[<дата>; <время>]'. Учитывай, что текущее время - это {content.current_time.strftime("%Y-%m-%d %H:%M:%S")}.
+                        Примеры:
+                        "Поставь на сегодня встречу в 19:00, текущее время 2024-12-2 12:00:00" 
+                        ответ: [2024-12-02; 19:00:00]
+                        Поставь на завтра встречу в 16:00, текущее время 2024-12-02 12:00:00" 
+                        ответ: [2024-12-03; 16:00:00]'''
+
+        time = self.normalize_time(self.request(message, 25).json()['choices'][0]['message']['content'])
+        if "date" in time and "завтра" in time["date"].lower():
+            time["date"] = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        elif "date" in time and "послезавтра" in time["date"].lower():
+            time["date"] = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
+        elif "dateTime" in time and "завтра" in time["dateTime"].lower():
+            time["date"] = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+            time.pop("dateTime")
+        elif "dateTime" in time and "послезавтра" in time["dateTime"].lower():
+            time["date"] = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
+            time.pop("dateTime")
+        return time
+
+    def get_time_to(self, content: Query) -> Dict[str, str]:
+        self.check_token()
+
+        message = f'''f"У теья лимит в 5 слов!
+                        Ты умеешь писать только даты и часы
+                        Не используй словва!
+                        Преобразуй запрос '{content.content}' в формат '[<дата конца события>; <время конца события>]'. Учитывай, что текущее время - это {content.current_time.strftime("%Y-%m-%d %H:%M:%S")}.
+                        Примеры:
+                        "Поставь на сегодня встречу в 19:00, текущее время 2024-12-2 12:00:00" 
+                        ответ: [2024-12-02; 20:00:00]
+                        Поставь на завтра встречу в 16:00, текущее время 2024-12-02 12:00:00" 
+                        ответ: [2024-12-03; 17:00:00]
+                        Поставь на сегодня встречу в 19:00 на 15 минут, текущее время 2024-12-2 12:00:00" 
+                        ответ: [2024-12-02; 19:15:00]
+                        Поставь на завтра встречу в 16:00 на полчаса, текущее время 2024-12-02 12:00:00" 
+                        ответ: [2024-12-03; 16:30:00]'''
+
+        time = self.normalize_time(self.request(message, 25).json()['choices'][0]['message']['content'])
+        if "date" in time and "завтра" in time["date"].lower():
+            time["date"] = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        if "date" in time and "послезавтра" in time["date"].lower():
+            time["date"] = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
+        elif "dateTime" in time and "завтра" in time["dateTime"].lower():
+            time["date"] = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+            time.pop("dateTime")
+        elif "dateTime" in time and "послезавтра" in time["dateTime"].lower():
+            time["date"] = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
+            time.pop("dateTime")
+        return time
+
+    def get_description(self, content: Query) -> str:
+        self.check_token()
+
+        message = f'''Ты обрабатываешь сообщения от пользователя чат-бота с интеграцией календаря.
+                        Пользователь отправил сообщение "{content.content}". Пользователь хочет поставить это
+                        событие в календарь. Тебе нужно определить и выписать описание этого события максимально полноценно.
+                        Напиши только описание события!'''
+
+        return self.request(message, 10).json()['choices'][0]['message']['content']
+
+    def parse_message(self, content: Query) -> Optional[Request]:
+        try:
+            parsed = Request(RequestType.ELSE, "", "", {}, None, None)
+            parsed.type = self.get_type(content)
+
+            if parsed.type == RequestType.ELSE:
+                parsed.type = self.get_type(content, temp=10)
+                if parsed.type == RequestType.ELSE:
+                    parsed.type = self.get_type(content, temp=100)
+                    if parsed.type == RequestType.ELSE:
+                        return None
+            elif parsed.type == RequestType.EVENT:
+                parsed.body = self.get_event_content(content)
+                parsed.extra = self.get_description(content)
             else:
-                await message.answer(f"Не удалось добавить событие в Google Calendar. Ошибка: {response}")
+                parsed.body = self.get_task_content(content)
 
-            # Сбрасываем состояние и показываем главное меню
-            await state.clear()
-            await message.answer("Что хотите сделать дальше?", reply_markup=get_main_menu_keyboard())
-        else:
-            await message.answer("Не удалось распознать событие. Пожалуйста, введите информацию о событии еще раз.")
+            parsed.timefrom = self.get_time_from(content)
+            parsed.dateto = self.get_time_to(content)
+            parsed.client_id = content.client_id
 
-    elif current_state == UserStates.waiting_for_task.state:
-        # Обрабатываем ввод задачи
-        content = Query(
-            client_id=telegram_id,
-            current_time=datetime.now(),
-            content=message.text.strip()
-        )
-        parsed_request = gpt_parser.parse_message(content)
-        if parsed_request and parsed_request.type == RequestType.GOAL:
-            # Добавляем задачу в Notion
-            notion_database_id = notion_id
-            notion_api_token = NOTION_API_TOKEN  # Используем общий токен
-
-            # Создаем экземпляр NotionModule
-            notion = NotionModule(database_id=notion_database_id)
-            task_title = parsed_request.body
-            due_date = parsed_request.timefrom.get('datetime', datetime.now().isoformat())
-
-            response = notion.add_task(title=task_title, date=due_date)
-
-            if 'id' in response:
-                await message.answer(f"Задача '{task_title}' успешно добавлена в Notion.")
-            else:
-                await message.answer("Не удалось добавить задачу в Notion. Попробуйте ещё раз.")
-
-            # Сбрасываем состояние и показываем главное меню
-            await state.clear()
-            await message.answer("Что хотите сделать дальше?", reply_markup=get_main_menu_keyboard())
-        else:
-            await message.answer("Не удалось распознать задачу. Пожалуйста, введите информацию о задаче еще раз.")
-
-    else:
-        # Не в состоянии ожидания, проверяем выбор действия
-        if message.text == "Добавить событие":
-            await message.answer("Пожалуйста, введите информацию о событии.")
-            await state.set_state(UserStates.waiting_for_event)
-        elif message.text == "Добавить задачу":
-            await message.answer("Пожалуйста, введите информацию о задаче.")
-            await state.set_state(UserStates.waiting_for_task)
-        else:
-            await message.answer("Пожалуйста, выберите действие из меню.", reply_markup=get_main_menu_keyboard())
-
-# Запуск бота
-if __name__ == "__main__":
-    print("Бот запущен!")
-    asyncio.run(dp.start_polling(bot))
+            return parsed
+        except:
+            return None
