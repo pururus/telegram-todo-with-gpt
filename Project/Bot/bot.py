@@ -4,7 +4,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
+import logging
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from pathlib import Path
 
@@ -15,15 +20,14 @@ for file_path in search_directory.rglob("Project"):
 import sys
 sys.path.append('project')
 
-from Database import ClientsDB
-from Calendar.Calendar_module import CalendarModule
-from API_notion.Notion_module import NotionModule
-from GPT.GPT_module import GPT
-from Query import Query
-from Request import RequestType
+from Project.Todoist.Todoist_module import TodoistModule
+from Project.Database import ClientsDB, Errors
+from Project.Calendar.Calendar_module import CalendarModule
+from Project.GPT.GPT_module import GPT
+from Project.Query import Query
+from Project.Request import RequestType
 
 API_TOKEN = "8149845915:AAEoY53NSKqO5QntlTI6fwz4x-0j70e1X3o"
-NOTION_API_TOKEN = "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"
 
 # Создаём объект бота и диспетчера
 bot = Bot(token=API_TOKEN)
@@ -38,7 +42,7 @@ gpt_parser = GPT()  # Инициализация GPT парсера
 # Определение состояний для регистрации и действий
 class RegistrationStates(StatesGroup):
     waiting_for_google_calendar_id = State()
-    waiting_for_notion_id = State()
+    waiting_for_todoist_token = State()
 
 class UserStates(StatesGroup):
     waiting_for_event = State()
@@ -69,10 +73,7 @@ async def start_handler(message: types.Message, state: FSMContext):
     calendar_id_row = db.get_calendar_id(telegram_id)
     calendar_id = calendar_id_row[0] if calendar_id_row else None
 
-    notion_id_row = db.get_notion_id(telegram_id)
-    notion_id = notion_id_row[0] if notion_id_row else None
-
-    if calendar_id and notion_id:
+    if calendar_id:
         # Если пользователь уже зарегистрирован
         await message.answer("Вы уже зарегистрированы.", reply_markup=get_main_menu_keyboard())
     else:
@@ -89,23 +90,33 @@ async def process_google_calendar_id(message: types.Message, state: FSMContext):
     Обрабатывает получение Google Calendar ID.
     """
     google_calendar_id = message.text.strip()
-    await state.update_data(google_calendar_id=google_calendar_id)
-    await message.answer("Спасибо! Теперь отправьте ваш Notion Database ID.")
-    await state.set_state(RegistrationStates.waiting_for_notion_id)
-
-@dp.message(RegistrationStates.waiting_for_notion_id)
-async def process_notion_id(message: types.Message, state: FSMContext):
-    """
-    Обрабатывает получение Notion ID.
-    """
-    notion_id = message.text.strip()
-    data = await state.get_data()
-    google_calendar_id = data.get('google_calendar_id')
     telegram_id = str(message.from_user.id)
 
+    # Сохраняем Google Calendar ID во временном состоянии
+    await state.update_data(google_calendar_id=google_calendar_id)
+
+    # Просим пользователя предоставить токен Todoist
+    await message.answer(
+        "Теперь, пожалуйста, отправьте ваш Todoist API токен.\n"
+        "Вы можете найти его в настройках вашего Todoist аккаунта."
+    )
+    await state.set_state(RegistrationStates.waiting_for_todoist_token)
+
+@dp.message(RegistrationStates.waiting_for_todoist_token)
+async def process_todoist_token(message: types.Message, state: FSMContext):
+    """
+    Обрабатывает получение токена Todoist.
+    """
+    todoist_token = message.text.strip()
+    telegram_id = str(message.from_user.id)
+
+    # Получаем сохранённый Google Calendar ID
+    data = await state.get_data()
+    google_calendar_id = data.get('google_calendar_id')
+
     # Добавляем пользователя в базу данных
-    result = db.add_client(telegram_id, google_calendar_id, notion_id)
-    if result == "integrityError":  # Проверяем на уникальность
+    result = db.add_client(telegram_id, google_calendar_id, todoist_token)
+    if result == Errors.INTEGRITY_ERROR.value:  # Проверяем на уникальность
         await message.answer("Вы уже зарегистрированы.", reply_markup=get_main_menu_keyboard())
     elif isinstance(result, Exception):
         await message.answer("Произошла ошибка при регистрации. Попробуйте позже.")
@@ -134,87 +145,78 @@ async def handle_user_message(message: types.Message, state: FSMContext):
     """
     Обрабатывает сообщения от пользователя после регистрации.
     """
-    telegram_id = str(message.from_user.id)
+    try:
+        telegram_id = str(message.from_user.id)
 
-    calendar_id_row = db.get_calendar_id(telegram_id)
-    calendar_id = calendar_id_row[0] if calendar_id_row else None
+        calendar_id = db.get_calendar_id(telegram_id)
+        todoist_token = db.get_todoist_token(telegram_id)
 
-    notion_id_row = db.get_notion_id(telegram_id)
-    notion_id = notion_id_row[0] if notion_id_row else None
+        if not calendar_id or not todoist_token:
+            # Пользователь не завершил регистрацию
+            await message.answer("Пожалуйста, отправьте команду /start для начала работы.")
+            return
 
-    if not calendar_id or not notion_id:
-        # Пользователь не завершил регистрацию
-        await message.answer("Пожалуйста, отправьте команду /start для начала работы.")
-        return
+        current_state = await state.get_state()
 
-    current_state = await state.get_state()
+        if current_state == UserStates.waiting_for_event.state:
+            # Обрабатываем ввод события
+            content = Query(
+                client_id=telegram_id,
+                current_time=datetime.now(),
+                content=message.text.strip()
+            )
+            parsed_request = gpt_parser.parse_message(content)
+            logger.info(f"Parsed request: {parsed_request}")
 
-    if current_state == UserStates.waiting_for_event.state:
-        # Обрабатываем ввод события
-        content = Query(
-            client_id=telegram_id,
-            current_time=datetime.now(),
-            content=message.text.strip()
-        )
-        parsed_request = gpt_parser.parse_message(content)
-        print(content)
-        print(parsed_request)
-        if parsed_request and parsed_request.type == RequestType.EVENT:
-            # Добавляем событие в Google Calendar
-            user_calendar_id = calendar_id
-            response = calendar.create_event(parsed_request, user_calendar_id)
-            if response is None:
-                await message.answer(f"Событие '{parsed_request.body}' успешно добавлено в Google Calendar.")
+            if parsed_request and parsed_request.type == RequestType.EVENT:
+                response = calendar.create_event(parsed_request, calendar_id)
+                if response is None:
+                    await message.answer(f"Событие '{parsed_request.body}' успешно добавлено в Google Calendar.")
+                else:
+                    await message.answer(f"Не удалось добавить событие в Google Calendar. Ошибка: {response}")
+
+                # Сбрасываем состояние и спрашиваем, что делать дальше
+                await state.clear()
+                await message.answer("Что хотите сделать дальше?", reply_markup=get_main_menu_keyboard())
             else:
-                await message.answer(f"Не удалось добавить событие в Google Calendar. Ошибка: {response}")
+                await message.answer("Не удалось распознать событие. Пожалуйста, введите информацию о событии ещё раз.")
 
-            # Сбрасываем состояние и показываем главное меню
-            await state.clear()
-            await message.answer("Что хотите сделать дальше?", reply_markup=get_main_menu_keyboard())
-        else:
-            await message.answer("Не удалось распознать событие. Пожалуйста, введите информацию о событии еще раз.")
+        elif current_state == UserStates.waiting_for_task.state:
+            # Обрабатываем ввод задачи
+            content = Query(
+                client_id=telegram_id,
+                current_time=datetime.now(),
+                content=message.text.strip()
+            )
+            parsed_request = gpt_parser.parse_message(content)
+            logger.info(f"Parsed task: {parsed_request}")
 
-    elif current_state == UserStates.waiting_for_task.state:
-        # Обрабатываем ввод задачи
-        content = Query(
-            client_id=telegram_id,
-            current_time=datetime.now(),
-            content=message.text.strip()
-        )
-        parsed_request = gpt_parser.parse_message(content)
-        if parsed_request and parsed_request.type == RequestType.GOAL:
-            # Добавляем задачу в Notion
-            notion_database_id = notion_id
-            notion_api_token = NOTION_API_TOKEN  # Используем общий токен
+            if parsed_request and parsed_request.type == RequestType.GOAL:
+                todoist_module = TodoistModule(todoist_token)
+                response = todoist_module.create_task(parsed_request)
+                if response is None:
+                    await message.answer(f"Задача '{parsed_request.body}' успешно добавлена в Todoist.")
+                else:
+                    await message.answer(f"Не удалось добавить задачу в Todoist. Ошибка: {response}")
 
-            # Создаем экземпляр NotionModule
-            notion = NotionModule(database_id=notion_database_id)
-            task_title = parsed_request.body
-            due_date = parsed_request.timefrom.get('datetime', datetime.now().isoformat())
-
-            response = notion.add_task(title=task_title, date=due_date)
-
-            if 'id' in response:
-                await message.answer(f"Задача '{task_title}' успешно добавлена в Notion.")
+                # Сбрасываем состояние и спрашиваем, что делать дальше
+                await state.clear()
+                await message.answer("Что хотите сделать дальше?", reply_markup=get_main_menu_keyboard())
             else:
-                await message.answer("Не удалось добавить задачу в Notion. Попробуйте ещё раз.")
-
-            # Сбрасываем состояние и показываем главное меню
-            await state.clear()
-            await message.answer("Что хотите сделать дальше?", reply_markup=get_main_menu_keyboard())
+                await message.answer("Не удалось распознать задачу. Пожалуйста, введите информацию о задаче ещё раз.")
         else:
-            await message.answer("Не удалось распознать задачу. Пожалуйста, введите информацию о задаче еще раз.")
+            if message.text == "Добавить событие":
+                await message.answer("Пожалуйста, введите информацию о событии.")
+                await state.set_state(UserStates.waiting_for_event)
+            elif message.text == "Добавить задачу":
+                await message.answer("Пожалуйста, введите информацию о задаче.")
+                await state.set_state(UserStates.waiting_for_task)
+            else:
+                await message.answer("Пожалуйста, выберите действие из меню.", reply_markup=get_main_menu_keyboard())
+    except Exception as e:
+        logger.exception(f"Произошла ошибка: {e}")
+        await message.answer("Произошла ошибка. Пожалуйста, попробуйте позже.")
 
-    else:
-        # Не в состоянии ожидания, проверяем выбор действия
-        if message.text == "Добавить событие":
-            await message.answer("Пожалуйста, введите информацию о событии.")
-            await state.set_state(UserStates.waiting_for_event)
-        elif message.text == "Добавить задачу":
-            await message.answer("Пожалуйста, введите информацию о задаче.")
-            await state.set_state(UserStates.waiting_for_task)
-        else:
-            await message.answer("Пожалуйста, выберите действие из меню.", reply_markup=get_main_menu_keyboard())
 
 # Запуск бота
 if __name__ == "__main__":

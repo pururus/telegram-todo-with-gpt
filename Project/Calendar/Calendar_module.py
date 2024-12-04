@@ -16,7 +16,7 @@ for file_path in search_directory.rglob("Project"):
 import sys
 sys.path.append('project')
 
-from Request import Request
+from Project.Request import Request
 
 class CalendarModule:
     '''
