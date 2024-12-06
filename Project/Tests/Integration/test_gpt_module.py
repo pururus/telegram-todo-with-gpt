@@ -6,6 +6,7 @@ from Project.GPT.GPT_module import GPT
 class TestGPTIntegration(unittest.TestCase):
     def setUp(self):
         self.gpt = GPT()
+        self.gpt.check_token()
 
     def test_request_status_code(self):
         message = 'Тестовое сообщение для GPT'
