@@ -6,8 +6,7 @@ from Project.Calendar.Calendar_module import CalendarModule
 
 @pytest.fixture
 def MyCalendar():
-    service_account_file = '/Users/liza/Documents/telegram-todo-with-gpt/Project/Calendar/to-do-443214-ed11f676b180.json'
-    calendar = CalendarModule(service_account_file=service_account_file)
+    calendar = CalendarModule()
     return calendar
 
 calendarId = '24399fbb12f20e1fdfaafd993ad4531dbe2675d11af0bd5dfa63a3292b503ef3@group.calendar.google.com'
