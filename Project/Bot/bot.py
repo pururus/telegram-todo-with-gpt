@@ -20,26 +20,22 @@ for file_path in search_directory.rglob("Project"):
 import sys
 sys.path.append('project')
 
-from Project.Todoist.Todoist_module import TodoistModule
-from Project.Database import ClientsDB, Errors
-from Project.Calendar.Calendar_module import CalendarModule
-from Project.GPT.GPT_module import GPT
-from Project.Query import Query
-from Project.Request import RequestType
+from Todoist.Todoist_module import TodoistModule
+from Database.Database import ClientsDB, Errors
+from Calendar.Calendar_module import CalendarModule
+from GPT.GPT_module import GPT
+from Query import Query
+from Request import RequestType
+from credentials import API_TOKEN
 
-API_TOKEN = "8149845915:AAEoY53NSKqO5QntlTI6fwz4x-0j70e1X3o"
-
-# Создаём объект бота и диспетчера
 bot = Bot(token=API_TOKEN)
-storage = MemoryStorage()  # Хранилище состояний в памяти
+storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-# Инициализация базы данных, Google Calendar и GPT парсера
-db = ClientsDB()  # Подключаем базу данных
-calendar = CalendarModule()  # Модуль для работы с Google Calendar
-gpt_parser = GPT()  # Инициализация GPT парсера
+db = ClientsDB("client_DB")
+calendar = CalendarModule()
+gpt_parser = GPT()
 
-# Определение состояний для регистрации и действий
 class RegistrationStates(StatesGroup):
     waiting_for_google_calendar_id = State()
     waiting_for_todoist_token = State()
@@ -80,7 +76,7 @@ async def start_handler(message: types.Message, state: FSMContext):
         # Начинаем процесс регистрации
         await message.answer(
             "Привет! Для начала работы нам нужны некоторые данные.\n"
-            "Пожалуйста, отправьте ваш Google Calendar ID."
+            "Пожалуйста, отправьте ваш Google Calendar ID. Его можно узнать в настройках. \nНужно выбрать нужный календарь и нажать 'Интеграция календаря'.\n Также предоставьте доступ для редактирования календаря to-do-with-gpt-project@to-do-443214.iam.gserviceaccount.com"
         )
         await state.set_state(RegistrationStates.waiting_for_google_calendar_id)
 
@@ -212,7 +208,39 @@ async def handle_user_message(message: types.Message, state: FSMContext):
                 await message.answer("Пожалуйста, введите информацию о задаче.")
                 await state.set_state(UserStates.waiting_for_task)
             else:
-                await message.answer("Пожалуйста, выберите действие из меню.", reply_markup=get_main_menu_keyboard())
+                content = Query(
+                    client_id=telegram_id,
+                    current_time=datetime.now(),
+                    content=message.text.strip()
+                )
+                parsed_request = gpt_parser.parse_message(content)
+                logger.info(f"Parsed request: {parsed_request}")
+
+                if parsed_request and parsed_request.type == RequestType.EVENT:
+                    response = calendar.create_event(parsed_request, calendar_id)
+                    if response is None:
+                        await message.answer(f"Событие '{parsed_request.body}' успешно добавлено в Google Calendar.")
+                    else:
+                        await message.answer(f"Не удалось добавить событие в Google Calendar. Ошибка: {response}")
+
+                    # Сбрасываем состояние и спрашиваем, что делать дальше
+                    await state.clear()
+                    await message.answer("Что хотите сделать дальше?", reply_markup=get_main_menu_keyboard())
+                elif  parsed_request and parsed_request.type == RequestType.GOAL:
+                    todoist_module = TodoistModule(todoist_token)
+                    response = todoist_module.create_task(parsed_request)
+                    if response is None:
+                        await message.answer(f"Задача '{parsed_request.body}' успешно добавлена в Todoist.")
+                    else:
+                        await message.answer(f"Не удалось добавить задачу в Todoist. Ошибка: {response}")
+
+                    # Сбрасываем состояние и спрашиваем, что делать дальше
+                    await state.clear()
+                    await message.answer("Что хотите сделать дальше?", reply_markup=get_main_menu_keyboard())
+
+                else:
+                    await message.answer("Я вас не понял( Попробуйте еще раз")
+
     except Exception as e:
         logger.exception(f"Произошла ошибка: {e}")
         await message.answer("Произошла ошибка. Пожалуйста, попробуйте позже.")
@@ -220,5 +248,5 @@ async def handle_user_message(message: types.Message, state: FSMContext):
 
 # Запуск бота
 if __name__ == "__main__":
-    print("ГООООООЙДАА!!")
+    print("Бот запущен")
     asyncio.run(dp.start_polling(bot))
