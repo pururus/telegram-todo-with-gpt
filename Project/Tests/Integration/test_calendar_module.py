@@ -1,13 +1,22 @@
-# не работает
-
 import pytest
 from datetime import datetime
-from Project.Calendar.Calendar_module import CalendarModule
+from pathlib import Path
+
+search_directory = Path('../')
+
+for file_path in search_directory.rglob("Project"):
+    project = file_path.resolve()
+    
+import sys
+sys.path.append('project')
+
+from Request import Request, RequestType
+from Calendar.Calendar_module import CalendarModule
+from Request import Request, RequestType
 
 @pytest.fixture
 def MyCalendar():
-    service_account_file = '/Users/liza/Documents/telegram-todo-with-gpt/Project/Calendar/to-do-443214-ed11f676b180.json'
-    calendar = CalendarModule(service_account_file=service_account_file)
+    calendar = CalendarModule()
     return calendar
 
 calendarId = '24399fbb12f20e1fdfaafd993ad4531dbe2675d11af0bd5dfa63a3292b503ef3@group.calendar.google.com'
@@ -133,3 +142,21 @@ def test_big_event(MyCalendar):
     }
     response = MyCalendar.create_event(event, calendarId)
     assert response is None
+
+def test_request(MyCalendar):
+    event = Request(RequestType.EVENT, "client", "Test request", {"dateTime": "2024-12-12T12:12:12+03:00"}, {"dateTime": "2024-12-13T12:12:12+03:00"}, "optional")
+
+    response = MyCalendar.create_event(event, calendarId)
+    assert response is None
+
+def test_request_with_no_dateto(MyCalendar):
+    event = Request(RequestType.EVENT, "client", "Test request", {"dateTime": "2024-12-12T12:12:12+03:00"}, None, "optional")
+
+    response = MyCalendar.create_event(event, calendarId)
+    assert response is None
+
+def test_request_with_bad_timefrom(MyCalendar):
+    event = Request(RequestType.EVENT, "client", "Test request", {"bad": "efkvhweljf"}, None, "optional")
+
+    response = MyCalendar.create_event(event, calendarId)
+    assert response is not None
