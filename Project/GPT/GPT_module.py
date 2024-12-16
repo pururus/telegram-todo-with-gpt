@@ -130,14 +130,17 @@ class GPT:
         return date[-1] == "T" or date.count("T") == 0
 
     def makefull(self, time: str) -> str:
-        time = time.replace(";", '')
-        if time.count(":") == 0:
-            time += ":00:00"
-        elif time.count(":") == 1:
-            time += ":00"
-        time += "+03:00"
+        parts = time.split("T")
+        if len(parts) == 1:
+            time = f"{parts[0]}T00:00:00+03:00"  # Дата без времени
+        elif len(parts) == 2:
+            if ":" not in parts[1]:
+                time = f"{parts[0]}T{parts[1]}:00:00+03:00"  # Часов только
+            elif parts[1].count(":") == 1:
+                time = f"{parts[0]}T{parts[1]}:00+03:00"  # Часы и минуты
+            else:
+                time = f"{parts[0]}T{parts[1]}+03:00"  # Полное время
         return time
-
     def normalize_time(self, time: str) -> Dict[str, str]:
         time = time.replace("[", "")
         time = time.replace("]", "")
@@ -162,9 +165,9 @@ class GPT:
     def get_time_from(self, content: Query) -> Dict[str, str]:
         self.check_token()
 
-        message = f'''f"У теья лимит в 5 слов
+        message = f'''f"У тебя лимит в 5 слов
                         Ты умеешь писать только даты и часы
-                        Не используй словва!
+                        Не используй слова!
                         Преобразуй запрос '{content.content}' в формат '[<дата>; <время>]'. Учитывай, что текущее время - это {content.current_time.strftime("%Y-%m-%d %H:%M:%S")}.
                         Примеры:
                         "Поставь на сегодня встречу в 19:00, текущее время 2024-12-2 12:00:00" 
@@ -188,9 +191,9 @@ class GPT:
     def get_time_to(self, content: Query) -> Dict[str, str]:
         self.check_token()
 
-        message = f'''f"У теья лимит в 5 слов!
+        message = f'''f"У тебя лимит в 5 слов!
                         Ты умеешь писать только даты и часы
-                        Не используй словва!
+                        Не используй слова!
                         Преобразуй запрос '{content.content}' в формат '[<дата конца события>; <время конца события>]'. Учитывай, что текущее время - это {content.current_time.strftime("%Y-%m-%d %H:%M:%S")}.
                         Примеры:
                         "Поставь на сегодня встречу в 19:00, текущее время 2024-12-2 12:00:00" 

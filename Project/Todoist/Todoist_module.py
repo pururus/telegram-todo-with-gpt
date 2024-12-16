@@ -30,14 +30,14 @@ class TodoistModule:
         if task_request.extra:
             data["description"] = task_request.extra
         if task_request.timefrom:
-            # Предполагаем, что timefrom — это словарь с ключами 'dateTime' или 'date'
             due_string = None
             if 'dateTime' in task_request.timefrom:
-                due_string = task_request.timefrom['dateTime']
+                # Извлекаем только дату из dateTime
+                due_string = task_request.timefrom['dateTime'].split("T")[0]
             elif 'date' in task_request.timefrom:
                 due_string = task_request.timefrom['date']
             if due_string:
-                data["due_string"] = due_string
+                data["due_string"] = due_string  # Передаём в корректном формате
 
         response = requests.post(url, headers=self.headers, json=data)
         if response.status_code == 200 or response.status_code == 204:

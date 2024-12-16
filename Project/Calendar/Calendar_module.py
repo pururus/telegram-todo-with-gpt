@@ -49,11 +49,13 @@ class CalendarModule:
             new_dict['summary'] = event.body
             if event.extra:
                 new_dict["description"] = event.extra
-            new_dict["start"] = event.timefrom
-            if event.dateto:
-                new_dict["end"] = event.dateto
+            # Приведение start и end к одинаковому формату
+            if 'dateTime' in event.timefrom:
+                new_dict["start"] = {"dateTime": event.timefrom['dateTime']}
+                new_dict["end"] = {"dateTime": event.dateto.get('dateTime', event.timefrom['dateTime'])}
             else:
-                new_dict["end"] = event.timefrom
+                new_dict["start"] = {"date": event.timefrom['date']}
+                new_dict["end"] = {"date": event.dateto.get('date', event.timefrom['date'])}
             
             event = new_dict
             
