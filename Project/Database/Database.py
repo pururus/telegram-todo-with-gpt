@@ -68,3 +68,22 @@ class ClientsDB:
         cursor.execute('DELETE FROM t_client WHERE telegram_id = ?', (telegram_id,))
         self.conn.commit()
         cursor.close()
+
+    def update_calendar_id(self, telegram_id, new_calendar_id):
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("UPDATE t_client SET calendar_id = ? WHERE telegram_id = ?", (new_calendar_id, telegram_id))
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            return False
+
+    def update_todoist_token(self, telegram_id, new_todoist_token):
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("UPDATE t_client SET todoist_token = ? WHERE telegram_id = ?",
+                           (new_todoist_token, telegram_id))
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            return False

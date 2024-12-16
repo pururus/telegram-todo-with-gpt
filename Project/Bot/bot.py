@@ -20,14 +20,15 @@ for file_path in search_directory.rglob("Project"):
 import sys
 sys.path.append('project')
 
-from Todoist.Todoist_module import TodoistModule
-from Database.Database import ClientsDB, Errors
-from Calendar.Calendar_module import CalendarModule
-from GPT.GPT_module import GPT
-from Query import Query
-from Request import RequestType
-from credentials import API_TOKEN
+from Project.Todoist.Todoist_module import TodoistModule
+from Project.Database.Database import ClientsDB, Errors
+from Project.Calendar.Calendar_module import CalendarModule
+from Project.GPT.GPT_module import GPT
+from Project.Request import RequestType
+from Project.Query import Query
+from Project.GPT.credentials import cal_credentials
 
+API_TOKEN = '8149845915:AAEoY53NSKqO5QntlTI6fwz4x-0j70e1X3o'
 bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
@@ -44,6 +45,10 @@ class UserStates(StatesGroup):
     waiting_for_event = State()
     waiting_for_task = State()
 
+class UpdateStates(StatesGroup):
+    waiting_for_new_calendar_id = State()
+    waiting_for_new_todoist_token = State()
+
 def get_main_menu_keyboard():
     """
     Создаёт клавиатуру с кнопками для главного меню.
@@ -53,12 +58,14 @@ def get_main_menu_keyboard():
             [
                 types.KeyboardButton(text="Добавить событие"),
                 types.KeyboardButton(text="Добавить задачу")
+            ],
+            [
+                types.KeyboardButton(text="Посмотреть команды бота")
             ]
         ],
         resize_keyboard=True
     )
     return keyboard
-
 @dp.message(Command("start"))
 async def start_handler(message: types.Message, state: FSMContext):
     """
@@ -135,6 +142,89 @@ async def unreg_handler(message: types.Message):
     cursor.close()
 
     await message.answer("Вы успешно отписались. Для повторной регистрации используйте команду /start.")
+
+
+@dp.message(lambda message: message.text == "Посмотреть команды бота")
+async def show_bot_commands(message: types.Message):
+    """
+    Показывает список доступных команд бота.
+    """
+    commands_list = (
+        "📘 **Доступные команды бота:**\n\n"
+        "/start - начать работу с ботом и зарегистрироваться \n"
+        "/unreg - удалить свои данные и отменить регистрацию :(\n"
+        "/update\\_calendar - обновить Google Calendar ID\n"
+        "/update\\_todoist - обновить Todoist API токен\n"
+        "Добавить событие - создать событие в Google Calendar\n"
+        "Добавить задачу - создать задачу в Todoist\n\n"
+        "Такие дела. 📖"
+    )
+    await message.answer(commands_list, parse_mode="Markdown")
+
+# Команда для обновления Google Calendar ID
+@dp.message(Command("update_calendar"))
+async def update_calendar_handler(message: types.Message, state: FSMContext):
+    """
+    Начинает процесс обновления Google Calendar ID.
+    """
+    telegram_id = str(message.from_user.id)
+    calendar_id = db.get_calendar_id(telegram_id)
+
+    if not calendar_id:
+        await message.answer("Сначала зарегистрируйтесь с помощью команды /start.")
+        return
+
+    await message.answer("Пожалуйста, отправьте ваш новый Google Calendar ID.")
+    await state.set_state(UpdateStates.waiting_for_new_calendar_id)
+
+@dp.message(UpdateStates.waiting_for_new_calendar_id)
+async def process_new_calendar_id(message: types.Message, state: FSMContext):
+    """
+    Обрабатывает новый Google Calendar ID и обновляет его в базе данных.
+    """
+    new_calendar_id = message.text.strip()
+    telegram_id = str(message.from_user.id)
+
+    result = db.update_calendar_id(telegram_id, new_calendar_id)
+    if result:
+        await message.answer("Ваш Google Calendar ID успешно обновлён!")
+    else:
+        await message.answer("Не удалось обновить Google Calendar ID. Попробуйте позже.")
+
+    await state.clear()
+
+# Команда для обновления Todoist API токена
+@dp.message(Command("update_todoist"))
+async def update_todoist_handler(message: types.Message, state: FSMContext):
+    """
+    Начинает процесс обновления Todoist API токена.
+    """
+    telegram_id = str(message.from_user.id)
+    todoist_token = db.get_todoist_token(telegram_id)
+
+    if not todoist_token:
+        await message.answer("Сначала зарегистрируйтесь с помощью команды /start.")
+        return
+
+    await message.answer("Пожалуйста, отправьте ваш новый Todoist API токен.")
+    await state.set_state(UpdateStates.waiting_for_new_todoist_token)
+
+@dp.message(UpdateStates.waiting_for_new_todoist_token)
+async def process_new_todoist_token(message: types.Message, state: FSMContext):
+    """
+    Обрабатывает новый Todoist API токен и обновляет его в базе данных.
+    """
+    new_todoist_token = message.text.strip()
+    telegram_id = str(message.from_user.id)
+
+    result = db.update_todoist_token(telegram_id, new_todoist_token)
+    if result:
+        await message.answer("Ваш Todoist API токен успешно обновлён!")
+    else:
+        await message.answer("Не удалось обновить Todoist API токен. Попробуйте позже.")
+
+    await state.clear()
+
 
 @dp.message()
 async def handle_user_message(message: types.Message, state: FSMContext):
