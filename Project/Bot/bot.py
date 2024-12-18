@@ -4,6 +4,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 import asyncio
+from aiogram.types import FSInputFile
 from datetime import datetime
 import logging
 
@@ -78,24 +79,27 @@ async def start_handler(message: types.Message, state: FSMContext):
         # Если пользователь уже зарегистрирован
         await message.answer("Вы уже зарегистрированы.", reply_markup=get_main_menu_keyboard())
     else:
-        # Начинаем процесс регистрации
-        await message.answer(
-            "🐠Hello and Welcome!🐟\n\n"
-            "Для начала работы мне понадобятся некоторые данные:\n\n"
-            "📅 **1. Google Calendar ID:**\n"
-            "   - Откройте настройки вашего Google календаря.\n"
-            "   - Выберите нужный календарь и нажмите **«Интеграция календаря»**.\n"
-            "   - Скопируйте ваш **Calendar ID**.\n"
-            "   - **Важно!** Предоставьте доступ для редактирования календаря на адрес:\n"
-            "     `to-do-with-gpt-project@to-do-443214.iam.gserviceaccount.com`.\n\n"
-            "📝 **2. Todoist API токен:**\n"
-            "   - Зайдите в настройки вашего Todoist аккаунта.\n"
-            "   - Перейдите в раздел **Интеграции** или **API токены**.\n"
-            "   - Скопируйте ваш **API токен**.\n\n"
-            "📤 Пожалуйста, отправьте сначала ваш **Google Calendar ID**, а затем **Todoist API токен**, чтобы мы могли продолжить!",
+        # Инструкция с фото по Google Calendar
+        calendar_image = FSInputFile("google_png.png")
+        await message.answer_photo(
+            photo=calendar_image,
+            caption=(
+                "🐠 Hello and Welcome! 🐟\n\n"
+                "Для начала работы мне понадобятся некоторые данные:\n\n"
+                "🐠 Шаг 1: Настройка Google Calendar 🐠\n\n"
+                "Следуйте инструкции на изображении:\n"
+                "1️⃣ Откройте настройки Google Календаря.\n"
+                "2️⃣ Выберите нужный календарь.\n"
+                "3️⃣ Перейдите в раздел Интеграция календаря.\n"
+                "4️⃣ Скопируйте ID календаря.\n"
+                "5️⃣ Откройте доступ на редактирование для адреса:\n"
+                "   to-do-with-gpt-project@to-do-443214.iam.gserviceaccount.com.\n\n"
+                "📤 Отправьте скопированный Google Calendar ID в ответ на это сообщение."
+            ),
             parse_mode="Markdown"
         )
         await state.set_state(RegistrationStates.waiting_for_google_calendar_id)
+
 
 @dp.message(Command("info"))
 async def info_handler(message: types.Message):
@@ -127,10 +131,20 @@ async def process_google_calendar_id(message: types.Message, state: FSMContext):
     # Сохраняем Google Calendar ID во временном состоянии
     await state.update_data(google_calendar_id=google_calendar_id)
 
-    # Просим пользователя предоставить токен Todoist
-    await message.answer(
-        "Теперь, пожалуйста, отправьте ваш Todoist API токен.\n"
-        "Вы можете найти его в настройках вашего Todoist аккаунта."
+    # Инструкция с фото по Todoist
+    todoist_image = FSInputFile("todoist_png.png")
+    await message.answer_photo(
+        photo=todoist_image,
+        caption=(
+            "🐠**Шаг 2: Настройка Todoist API токена**🐳\n\n"
+            "Следуйте инструкции на изображении:\n"
+            "1️⃣ Откройте настройки вашего Todoist аккаунта.\n"
+            "2️⃣ Перейдите в раздел **Интеграции** или **API токены**.\n"
+            "3️⃣ Выберите раздел **Developer**.\n"
+            "4️⃣ Скопируйте ваш **API токен**.\n\n"
+            "📤 Отправьте скопированный **Todoist API токен** в ответ на это сообщение."
+        ),
+        parse_mode="Markdown"
     )
     await state.set_state(RegistrationStates.waiting_for_todoist_token)
 
