@@ -312,8 +312,8 @@ async def handle_user_message(message: types.Message, state: FSMContext):
         user_input = message.text.strip()
 
         # Проверка на ввод одного символа
-        if len(user_input) <= 6:
-            await message.answer("че за хуйню высрал")
+        if len(user_input) <= 1:
+            await message.answer("давай по новой")
             return
 
         if current_state == UserStates.waiting_for_event.state:
