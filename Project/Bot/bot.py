@@ -170,6 +170,11 @@ async def process_google_calendar_id(message: types.Message, state: FSMContext):
     2) Если неверно — просит повторить ввод.
     3) Если верно — переходим к запросу Todoist токена.
     """
+
+    if message.content_type != "text":
+        await message.answer_sticker("CAACAgIAAxkBAAENXmhnZwP0bfeLzZea9nsK2PT0fXS9mAACBmYAAr3eOEsPP42OGI3_aDYE") # надо вводить буковки
+        return
+
     google_calendar_id = message.text.strip()
     telegram_id = str(message.from_user.id)
 
@@ -206,6 +211,12 @@ async def process_todoist_token(message: types.Message, state: FSMContext):
     2) Если неверно — отправляем стикер.
     3) Если верно — сохраняем данные в БД и завершаем регистрацию.
     """
+
+    if message.content_type != "text":
+        await message.answer_sticker(
+            "CAACAgIAAxkBAAENXmhnZwP0bfeLzZea9nsK2PT0fXS9mAACBmYAAr3eOEsPP42OGI3_aDYE")  # надо вводить буковки
+        return
+
     todoist_token = message.text.strip()
     telegram_id = str(message.from_user.id)
 
@@ -286,6 +297,8 @@ async def update_calendar_handler(message: types.Message, state: FSMContext):
 
     Проверяем, есть ли данные пользователя в БД. Если нет — /start, иначе ждём ввода нового ID.
     """
+
+
     telegram_id = str(message.from_user.id)
     if not is_user_registered(telegram_id):
         await message.answer("Сначала зарегистрируйтесь с помощью команды /start.")
@@ -302,6 +315,11 @@ async def process_new_calendar_id(message: types.Message, state: FSMContext):
     1) Проверяем валидность.
     2) Если валиден — обновляем в БД.
     """
+
+    if message.content_type != "text":
+        await message.answer_sticker("CAACAgIAAxkBAAENXmhnZwP0bfeLzZea9nsK2PT0fXS9mAACBmYAAr3eOEsPP42OGI3_aDYE") # надо вводить буковки
+        return
+
     new_calendar_id = message.text.strip()
     telegram_id = str(message.from_user.id)
 
@@ -324,6 +342,7 @@ async def update_todoist_handler(message: types.Message, state: FSMContext):
 
     Если не зарегистрирован — /start, иначе ждём новый токен.
     """
+
     telegram_id = str(message.from_user.id)
     if not is_user_registered(telegram_id):
         await message.answer("Сначала зарегистрируйтесь с помощью команды /start.")
@@ -340,6 +359,11 @@ async def process_new_todoist_token(message: types.Message, state: FSMContext):
     1) Проверяем валидность токена (validate_token).
     2) Обновляем в БД.
     """
+
+    if message.content_type != "text":
+        await message.answer_sticker("CAACAgIAAxkBAAENXmhnZwP0bfeLzZea9nsK2PT0fXS9mAACBmYAAr3eOEsPP42OGI3_aDYE") # надо вводить буковки
+        return
+
     new_todoist_token = message.text.strip()
     telegram_id = str(message.from_user.id)
 
@@ -396,8 +420,8 @@ async def handle_user_message(message: types.Message, state: FSMContext):
         # Проверка на тип сообщения:
         # Если не text (например, sticker, voice, фото, документ, gif и т.д.), просим текст
         if message.content_type != "text":
-            # Отправка стикера вместо текста
-            await message.answer_sticker("CAACAgIAAxkBAAENXUxnZo1mls407mn6UDUpVUF99h5WbwAChlwAAvosOEt4WHe1UgFjQTYE") # my honest reaction
+            await message.answer_sticker(
+                "CAACAgIAAxkBAAENXmhnZwP0bfeLzZea9nsK2PT0fXS9mAACBmYAAr3eOEsPP42OGI3_aDYE")  # надо вводить буковки
             return
 
         if not is_user_registered(telegram_id):
@@ -410,6 +434,10 @@ async def handle_user_message(message: types.Message, state: FSMContext):
         # Если пользователь ввёл всего 1 символ
         if len(user_input) <= 1:
             await message.answer_sticker("CAACAgIAAxkBAAENXVJnZo6pZBdtrSEzaS9uHzJ7cCeBKgAC1lUAAntVMEsGpxSQaHhx3DYE") # smol
+            return
+        if len(user_input) <= 3 and len(user_input) > 1:
+            await message.answer_sticker(
+                "CAACAgIAAxkBAAENXUxnZo1mls407mn6UDUpVUF99h5WbwAChlwAAvosOEt4WHe1UgFjQTYE")  # my honest reaction
             return
 
         # Логика обработки состояний:
