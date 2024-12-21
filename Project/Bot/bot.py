@@ -184,6 +184,7 @@ async def process_google_calendar_id(message: types.Message, state: FSMContext):
     await message.answer_photo(
         photo=todoist_image,
         caption=(
+            "Супер!🐬\n\n"
             "🐠**Шаг 2: Настройка Todoist API токена**🐳\n\n"
             "Следуйте инструкции на изображении:\n"
             "1️⃣ Откройте настройки вашего Todoist аккаунта.\n"
@@ -202,7 +203,7 @@ async def process_todoist_token(message: types.Message, state: FSMContext):
     Обрабатывает получение токена Todoist.
 
     1) Проверяем валидность Todoist токена (validate_token).
-    2) Если неверно — просим повторить ввод.
+    2) Если неверно — отправляем стикер.
     3) Если верно — сохраняем данные в БД и завершаем регистрацию.
     """
     todoist_token = message.text.strip()
@@ -211,11 +212,22 @@ async def process_todoist_token(message: types.Message, state: FSMContext):
     data = await state.get_data()
     google_calendar_id = data.get('google_calendar_id')
 
-    todoist_module = TodoistModule(todoist_token)
-    if not todoist_module.validate_token():
-        await message.answer_sticker("CAACAgIAAxkBAAENXVlnZpBVoCDz9AbxflDAeW1KWVXSCAACuWEAAq-EMUuLDDAtDmQyNzYE") # неверный тудуист токен
+    try:
+        # Инициализация модуля Todoist
+        todoist_module = TodoistModule(todoist_token)
+
+        # Проверка валидности токена
+        if not todoist_module.validate_token():
+            # Если токен невалидный, отправляем стикер
+            await message.answer_sticker("CAACAgIAAxkBAAENXVlnZpBVoCDz9AbxflDAeW1KWVXSCAACuWEAAq-EMUuLDDAtDmQyNzYE")  # Стикер с сообщением о неверном токене
+            return
+    except Exception as e:
+        logger.error(f"Ошибка при валидации токена: {e}")
+        # Отправляем стикер при любой ошибке
+        await message.answer_sticker("CAACAgIAAxkBAAENXVlnZpBVoCDz9AbxflDAeW1KWVXSCAACuWEAAq-EMUuLDDAtDmQyNzYE")
         return
 
+    # Если токен валидный, продолжаем регистрацию
     result = db.add_client(telegram_id, google_calendar_id, todoist_token)
     if result == Errors.INTEGRITY_ERROR.value:
         await message.answer("Вы уже зарегистрированы.", reply_markup=get_main_menu_keyboard())
