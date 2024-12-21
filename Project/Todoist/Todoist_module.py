@@ -5,8 +5,8 @@ from Project.Request import Request
 class TodoistModule:
     """
     Класс для работы с API Todoist:
-    - Проверка валидности токена (validate_token)
-    - Создание задач (create_task)
+    1) Проверка валидности токена (validate_token).
+    2) Создание задач (create_task).
     """
 
     def __init__(self, token: str):
@@ -14,7 +14,7 @@ class TodoistModule:
         Инициализирует TodoistModule с токеном API пользователя.
 
         Args:
-            token (str): Токен доступа к Todoist API, полученный от пользователя.
+            token (str): Токен API пользователя Todoist.
         """
         self.token = token
         self.headers = {
@@ -45,17 +45,17 @@ class TodoistModule:
         Создаёт задачу в Todoist.
 
         Логика:
-        1) Готовим запрос (POST) на /rest/v2/tasks.
-        2) "content" = имя задачи (task_request.body).
-        3) Если есть описание (extra), кладём в description.
-        4) Если есть дата/время, передаём как due_string (только дату).
+        1) Делаем POST-запрос на /rest/v2/tasks.
+        2) 'content' = название задачи (task_request.body).
+        3) Если есть описание (extra) — кладём в 'description'.
+        4) Если есть дата/время — извлекаем дату (без времени) и передаём как 'due_string'.
         5) При успехе возвращаем None, иначе строку с ошибкой.
 
         Args:
-            task_request (Request): Объект Request с типом = GOAL, body = название задачи, extra = описание.
+            task_request (Request): Request с типом GOAL, body = имя задачи, extra = описание задачи.
 
         Returns:
-            Optional[str]: None, если всё ок. Иначе строка "Error code: ...".
+            Optional[str]: None при успехе, иначе строка вида "Error <код>: <текст>".
         """
         url = "https://api.todoist.com/rest/v2/tasks"
         data = {

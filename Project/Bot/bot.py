@@ -37,7 +37,7 @@ API_TOKEN = '8149845915:AAEoY53NSKqO5QntlTI6fwz4x-0j70e1X3o'
 """
 Создаём объекты бота и диспетчера.
 - Bot: для отправки и получения сообщений.
-- Dispatcher: отвечает за маршрутизацию сообщений к обработчикам.
+- Dispatcher: отвечает за маршрутизацию сообщений к нужным обработчикам.
 """
 bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
@@ -71,7 +71,7 @@ class UpdateStates(StatesGroup):
     waiting_for_new_calendar_id = State()
     waiting_for_new_todoist_token = State()
 
-def get_main_menu_keyboard():
+def get_main_menu_keyboard() -> types.ReplyKeyboardMarkup:
     """
     Создаёт клавиатуру с кнопками для главного меню.
 
@@ -91,26 +91,35 @@ def get_main_menu_keyboard():
     )
     return keyboard
 
+def is_user_registered(telegram_id: str) -> bool:
+    """
+    Проверяет, есть ли у пользователя (telegram_id) в БД данные
+    для Google Calendar и Todoist.
+
+    Args:
+        telegram_id (str): Telegram ID пользователя.
+    Returns:
+        bool: True, если и calendar_id, и todoist_token найдены, иначе False.
+    """
+    calendar_id = db.get_calendar_id(telegram_id)
+    todoist_token = db.get_todoist_token(telegram_id)
+    return bool(calendar_id and todoist_token)
+
 @dp.message(Command("start"))
 async def start_handler(message: types.Message, state: FSMContext):
     """
     Обработчик команды /start.
 
     Логика:
-    1) Проверяем, зарегистрирован ли пользователь, обратившись к БД (get_calendar_id).
+    1) Проверяем, зарегистрирован ли пользователь, обратившись к БД (is_user_registered).
     2) Если зарегистрирован, предлагаем главное меню.
     3) Иначе отправляем инструкцию по настройке Google Calendar и переводим бота в состояние ожидания Google Calendar ID.
     """
     telegram_id = str(message.from_user.id)
 
-    calendar_id_row = db.get_calendar_id(telegram_id)
-    calendar_id = calendar_id_row[0] if calendar_id_row else None
-
-    if calendar_id:
-        # Если пользователь уже зарегистрирован
+    if is_user_registered(telegram_id):
         await message.answer("Вы уже зарегистрированы.", reply_markup=get_main_menu_keyboard())
     else:
-        # Инструкция с фото по Google Calendar
         calendar_image = FSInputFile("google_png.png")
         await message.answer_photo(
             photo=calendar_image,
@@ -159,21 +168,18 @@ async def process_google_calendar_id(message: types.Message, state: FSMContext):
 
     1) Проверяет валидность календаря (validate_calendar_id).
     2) Если неверно — просит повторить ввод.
-    3) Если верно — переходит к запросу Todoist токена.
+    3) Если верно — переходим к запросу Todoist токена.
     """
     google_calendar_id = message.text.strip()
     telegram_id = str(message.from_user.id)
 
-    # Проверяем валидность Calendar ID
     is_valid = calendar.validate_calendar_id(google_calendar_id)
     if not is_valid:
-        await message.answer("Похоже, что указан некорректный Google Calendar ID. Попробуйте ещё раз.")
+        await message.answer_sticker("CAACAgIAAxkBAAENXVVnZpAk9PS1lNx4P-nqpTvDiFaDaQACt2IAA7QwSwxxEbxXoU5MNgQ") # неверный гугол календарь айди
         return
 
-    # Сохраняем Google Calendar ID во временном состоянии
     await state.update_data(google_calendar_id=google_calendar_id)
 
-    # Инструкция с фото по Todoist
     todoist_image = FSInputFile("todoist_png.png")
     await message.answer_photo(
         photo=todoist_image,
@@ -195,24 +201,21 @@ async def process_todoist_token(message: types.Message, state: FSMContext):
     """
     Обрабатывает получение токена Todoist.
 
-    1) Проверяет валидность Todoist токена методом validate_token().
-    2) Если неверно — просит повторить ввод.
-    3) Если верно — сохраняет данные в БД и завершает регистрацию.
+    1) Проверяем валидность Todoist токена (validate_token).
+    2) Если неверно — просим повторить ввод.
+    3) Если верно — сохраняем данные в БД и завершаем регистрацию.
     """
     todoist_token = message.text.strip()
     telegram_id = str(message.from_user.id)
 
-    # Получаем сохранённый Google Calendar ID
     data = await state.get_data()
     google_calendar_id = data.get('google_calendar_id')
 
-    # Проверяем валидность Todoist токена
     todoist_module = TodoistModule(todoist_token)
     if not todoist_module.validate_token():
-        await message.answer("Похоже, что указан некорректный Todoist токен. Попробуйте ещё раз.")
+        await message.answer_sticker("CAACAgIAAxkBAAENXVlnZpBVoCDz9AbxflDAeW1KWVXSCAACuWEAAq-EMUuLDDAtDmQyNzYE") # неверный тудуист токен
         return
 
-    # Добавляем пользователя в базу данных
     result = db.add_client(telegram_id, google_calendar_id, todoist_token)
     if result == Errors.INTEGRITY_ERROR.value:
         await message.answer("Вы уже зарегистрированы.", reply_markup=get_main_menu_keyboard())
@@ -228,27 +231,23 @@ async def unreg_handler(message: types.Message):
     """
     Обрабатывает команду /unreg для удаления данных пользователя.
 
-    1) Удаляет запись из БД.
-    2) Сообщает пользователю о завершении операции.
+    1) Удаляет пользователя из БД.
+    2) Сообщает о завершении операции.
     """
     telegram_id = str(message.from_user.id)
-
-    # Удаляем пользователя из базы данных
     cursor = db.conn.cursor()
     cursor.execute('DELETE FROM t_client WHERE telegram_id = ?', (telegram_id,))
     db.conn.commit()
     cursor.close()
 
-    await message.answer("Вы успешно отписались. Для повторной регистрации используйте команду /start.")
+    await message.answer_sticker("CAACAgIAAxkBAAENXV1nZpOnX_PwZ4Xsmr1CSLBipbB6JQACml0AAp1FOEuRZgX-KGhUnjYE") # вы успешно отписались
 
 @dp.message(Command("status"))
 async def status_handler(message: types.Message):
     """
-    Обрабатывает команду /status и показывает текущие идентификаторы пользователя.
+    Показывает текущие идентификаторы пользователя (Calendar ID, Todoist токен).
 
-    1) Получает Google Calendar ID и Todoist token из БД.
-    2) Если нет данных, просит пройти регистрацию.
-    3) Иначе выводит текущее состояние.
+    Если не зарегистрирован, просим сделать /start.
     """
     telegram_id = str(message.from_user.id)
 
@@ -258,30 +257,25 @@ async def status_handler(message: types.Message):
     if not calendar_id or not todoist_token:
         await message.answer("Вы ещё не зарегистрированы. Используйте команду /start для начала работы.")
         return
-
     status_message = (
         f"📋 **Ваш текущий статус:** 📋\n\n"
         f"🔹 **Google Calendar ID**: '{calendar_id}'\n"
         f"🔹 **Todoist API токен**: '{todoist_token}'\n\n"
         "Если вам нужно обновить данные:\n"
         "🔹 Используйте /update_calendar для Google Calendar.\n"
-        "🔹 Используйте /update_todoist для Todoist API токена."
+        "🔹 Используйте /update_todoist для Todoist API токен."
     )
     await message.answer(status_message, parse_mode="Markdown")
 
 @dp.message(Command("update_calendar"))
 async def update_calendar_handler(message: types.Message, state: FSMContext):
     """
-    Начинает процесс обновления Google Calendar ID по команде /update_calendar.
+    Начинает процесс обновления Google Calendar ID (команда /update_calendar).
 
-    1) Проверяет, есть ли у пользователя данные в БД.
-    2) Если нет, просит /start.
-    3) Если да, переводит бота в состояние ожидания нового Calendar ID.
+    Проверяем, есть ли данные пользователя в БД. Если нет — /start, иначе ждём ввода нового ID.
     """
     telegram_id = str(message.from_user.id)
-    calendar_id = db.get_calendar_id(telegram_id)
-
-    if not calendar_id:
+    if not is_user_registered(telegram_id):
         await message.answer("Сначала зарегистрируйтесь с помощью команды /start.")
         return
 
@@ -291,17 +285,16 @@ async def update_calendar_handler(message: types.Message, state: FSMContext):
 @dp.message(UpdateStates.waiting_for_new_calendar_id)
 async def process_new_calendar_id(message: types.Message, state: FSMContext):
     """
-    Обрабатывает новый Google Calendar ID после команды /update_calendar.
+    Обрабатывает новый Google Calendar ID после /update_calendar.
 
-    1) Проверяет валидность ID (validate_calendar_id).
-    2) Если неверно — просит повторно ввести.
-    3) Иначе обновляет в БД.
+    1) Проверяем валидность.
+    2) Если валиден — обновляем в БД.
     """
     new_calendar_id = message.text.strip()
     telegram_id = str(message.from_user.id)
 
     if not calendar.validate_calendar_id(new_calendar_id):
-        await message.answer("Похоже, что указан некорректный Google Calendar ID. Попробуйте ещё раз.")
+        await message.answer_sticker("CAACAgIAAxkBAAENXVVnZpAk9PS1lNx4P-nqpTvDiFaDaQACt2IAA7QwSwxxEbxXoU5MNgQ") # неверный гугол календарь айди
         return
 
     result = db.update_calendar_id(telegram_id, new_calendar_id)
@@ -315,16 +308,12 @@ async def process_new_calendar_id(message: types.Message, state: FSMContext):
 @dp.message(Command("update_todoist"))
 async def update_todoist_handler(message: types.Message, state: FSMContext):
     """
-    Начинает процесс обновления Todoist API токена по команде /update_todoist.
+    Начинает процесс обновления Todoist API токена (команда /update_todoist).
 
-    1) Проверяет, есть ли у пользователя токен в БД.
-    2) Если нет, просит /start.
-    3) Иначе переводит бота в состояние ожидания нового токена.
+    Если не зарегистрирован — /start, иначе ждём новый токен.
     """
     telegram_id = str(message.from_user.id)
-    todoist_token = db.get_todoist_token(telegram_id)
-
-    if not todoist_token:
+    if not is_user_registered(telegram_id):
         await message.answer("Сначала зарегистрируйтесь с помощью команды /start.")
         return
 
@@ -334,18 +323,17 @@ async def update_todoist_handler(message: types.Message, state: FSMContext):
 @dp.message(UpdateStates.waiting_for_new_todoist_token)
 async def process_new_todoist_token(message: types.Message, state: FSMContext):
     """
-    Обрабатывает новый Todoist API токен после команды /update_todoist.
+    Обрабатывает новый Todoist API токен после /update_todoist.
 
-    1) Проверяем валидность токена методом validate_token().
-    2) Если неверно — просим повторно ввести.
-    3) Иначе обновляем в БД.
+    1) Проверяем валидность токена (validate_token).
+    2) Обновляем в БД.
     """
     new_todoist_token = message.text.strip()
     telegram_id = str(message.from_user.id)
 
     todoist_module = TodoistModule(new_todoist_token)
     if not todoist_module.validate_token():
-        await message.answer("Похоже, что указан некорректный Todoist токен. Попробуйте ещё раз.")
+        await message.answer_sticker("CAACAgIAAxkBAAENXVlnZpBVoCDz9AbxflDAeW1KWVXSCAACuWEAAq-EMUuLDDAtDmQyNzYE") # неверный тудуист токен
         return
 
     result = db.update_todoist_token(telegram_id, new_todoist_token)
@@ -362,7 +350,7 @@ async def handle_add_event(message: types.Message, state: FSMContext):
     Обработчик кнопки "Добавить событие".
 
     1) Сбрасывает текущее состояние.
-    2) Переводит бота в состояние ожидания информации о событии (waiting_for_event).
+    2) Устанавливает состояние ожидания информации о событии (waiting_for_event).
     """
     await state.clear()
     await message.answer("Пожалуйста, введите информацию о событии.")
@@ -374,53 +362,56 @@ async def handle_add_task(message: types.Message, state: FSMContext):
     Обработчик кнопки "Добавить задачу".
 
     1) Сбрасывает текущее состояние.
-    2) Переводит бота в состояние ожидания информации о задаче (waiting_for_task).
+    2) Устанавливает состояние ожидания информации о задаче (waiting_for_task).
     """
     await state.clear()
     await message.answer("Пожалуйста, введите информацию о задаче.")
     await state.set_state(UserStates.waiting_for_task)
+
 
 @dp.message()
 async def handle_user_message(message: types.Message, state: FSMContext):
     """
     Обрабатывает прочие сообщения от пользователя после регистрации.
 
-    Логика:
-    1) Проверяем, зарегистрирован ли пользователь (есть ли Calendar ID и Todoist токен).
-    2) Смотрим текущее состояние пользователя (в т.ч. waiting_for_event, waiting_for_task).
-    3) Если waiting_for_event: парсим событие, создаём в Google Calendar.
-    4) Если waiting_for_task: парсим задачу, создаём в Todoist.
-    5) Иначе, если пользователь вводит команды "Добавить событие" или "Добавить задачу" — обрабатываем.
-    6) Всё обёрнуто в try-except для логирования ошибок.
+    Новая логика:
+    1) Если сообщение не является текстом (стикер, gif, голосовое, фото и т.п.), отвечаем "мяу, красиво, но давай текстом".
+    2) Иначе работаем с состояниями: waiting_for_event, waiting_for_task, или предлагаем меню.
     """
     try:
         telegram_id = str(message.from_user.id)
 
-        calendar_id = db.get_calendar_id(telegram_id)
-        todoist_token = db.get_todoist_token(telegram_id)
+        # Проверка на тип сообщения:
+        # Если не text (например, sticker, voice, фото, документ, gif и т.д.), просим текст
+        if message.content_type != "text":
+            # Отправка стикера вместо текста
+            await message.answer_sticker("CAACAgIAAxkBAAENXUxnZo1mls407mn6UDUpVUF99h5WbwAChlwAAvosOEt4WHe1UgFjQTYE") # my honest reaction
+            return
 
-        if not calendar_id or not todoist_token:
+        if not is_user_registered(telegram_id):
             await message.answer("Пожалуйста, отправьте команду /start для начала работы.")
             return
 
         current_state = await state.get_state()
         user_input = message.text.strip()
 
-        # Проверка на ввод одного символа
+        # Если пользователь ввёл всего 1 символ
         if len(user_input) <= 1:
-            await message.answer("давай по новой")
+            await message.answer_sticker("CAACAgIAAxkBAAENXVJnZo6pZBdtrSEzaS9uHzJ7cCeBKgAC1lUAAntVMEsGpxSQaHhx3DYE") # smol
             return
 
+        # Логика обработки состояний:
         if current_state == UserStates.waiting_for_event.state:
             content = Query(
                 client_id=telegram_id,
                 current_time=datetime.now(),
-                content=message.text.strip()
+                content=user_input
             )
             parsed_request = gpt_parser.parse_message(content)
             logger.info(f"Parsed request: {parsed_request}")
 
             if parsed_request and parsed_request.type == RequestType.EVENT:
+                calendar_id = db.get_calendar_id(telegram_id)
                 response = calendar.create_event(parsed_request, calendar_id)
                 if response is None:
                     await message.answer(f"Событие '{parsed_request.body}' успешно добавлено в Google Calendar.")
@@ -436,12 +427,13 @@ async def handle_user_message(message: types.Message, state: FSMContext):
             content = Query(
                 client_id=telegram_id,
                 current_time=datetime.now(),
-                content=message.text.strip()
+                content=user_input
             )
             parsed_request = gpt_parser.parse_message(content)
             logger.info(f"Parsed task: {parsed_request}")
 
             if parsed_request and parsed_request.type == RequestType.GOAL:
+                todoist_token = db.get_todoist_token(telegram_id)
                 todoist_module = TodoistModule(todoist_token)
                 response = todoist_module.create_task(parsed_request)
                 if response is None:
@@ -455,10 +447,11 @@ async def handle_user_message(message: types.Message, state: FSMContext):
                 await message.answer("Не удалось распознать задачу. Пожалуйста, введите информацию о задаче ещё раз.")
 
         else:
-            if message.text == "Добавить событие":
+            # Если состояние не waiting_for_event и не waiting_for_task
+            if user_input == "Добавить событие":
                 await message.answer("Пожалуйста, введите информацию о событии.")
                 await state.set_state(UserStates.waiting_for_event)
-            elif message.text == "Добавить задачу":
+            elif user_input == "Добавить задачу":
                 await message.answer("Пожалуйста, введите информацию о задаче.")
                 await state.set_state(UserStates.waiting_for_task)
             else:
