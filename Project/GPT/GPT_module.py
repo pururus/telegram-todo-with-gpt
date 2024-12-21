@@ -13,10 +13,10 @@ for file_path in search_directory.rglob("Project"):
 import sys
 sys.path.append('project')
 
-from Project.Query import Query
-from Project.Request import Request, RequestType
+from Query import Query
+from Request import Request, RequestType
 
-from Project.GPT.credentials import cal_credentials
+from GPT.credentials import cal_credentials
 
 import logging
 from typing import Dict, Optional
@@ -25,6 +25,7 @@ logging.captureWarnings(True)
 
 class GPT:
     _token = None
+    _model = "GigaChat-Max"
     _url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
 
     def get_token(self, auth_token, scope='GIGACHAT_API_PERS'):
@@ -54,7 +55,7 @@ class GPT:
 
     def request(self, message: str, max_tockens: int = 50, temp=1) -> str:
         payload = json.dumps({
-            "model": "GigaChat",
+            "model": "GigaChat-Max",
             "messages": [
                 {
                     "role": "user",
@@ -75,7 +76,7 @@ class GPT:
         response = requests.request("POST", self._url, headers=headers, data=payload, verify=False)
         return response
 
-    def get_type(self, content: Query) -> RequestType:
+    def get_type(self, content: Query, temp=1) -> RequestType:
         self.check_token()
 
         message = f'''Вся информация, которую я упоминаю в этом чате, должна остаться строго в рамках этого чата. Не сохраняй её, не используй ни в каких других контекстах и не упоминай её нигде в будущем. Считай, что вся информация исчезает сразу после завершения беседы, и ты не знаешь, что она когда-либо существовала. Не сохраняй и не используй эти данные в других чатах или беседях.
@@ -105,8 +106,16 @@ class GPT:
 
         Напиши только тип ("event", "task" или "else")!'''
 
-        ans = (self.request(message, 100).json()['choices'][0]['message']['content']).lower()
-
+        try:
+            ans = (self.request(message, 100, temp).json()['choices'][0]['message']['content']).lower()
+        except:
+            if "Max" in self._model:
+                self._model = "GigaChat-Pro"
+                return RequestType.ELSE
+            else:
+                self._model = "GigaChat"
+                return RequestType.ELSE
+        
         if "event" in ans or "событие" in ans or "мероприятие" in ans:
             return RequestType.EVENT
         elif "todo" in ans or "task" in ans:
@@ -221,6 +230,7 @@ class GPT:
             dt = self.makefull(normal_time)
             if len(dt) < 10:
                 return {}
+            dt = dt.replace("T24", "T23")
             return {'dateTime': dt}
 
     def get_time_from(self, content: Query) -> Dict[str, str]:
@@ -307,6 +317,13 @@ class GPT:
 
         return self.request(message, 10).json()['choices'][0]['message']['content']
 
+    def better_times(self, parsed: Request):
+        if "dateTime" in parsed.dateto and "dateTime" in parsed.timefrom:
+            parsed.timefrom["dateTime"], parsed.dateto["dateTime"] = min(parsed.timefrom["dateTime"], parsed.dateto["dateTime"]), max(parsed.timefrom["dateTime"], parsed.dateto["dateTime"])
+        else:
+            parsed.dateto = parsed.timefrom
+        return parsed
+    
     def parse_message(self, content: Query) -> Optional[Request]:
         try:
             parsed = Request(RequestType.ELSE, "", "", {}, None, None)
@@ -324,6 +341,7 @@ class GPT:
                 # Для EVENT мы идём дальше, получаем timefrom/timeTo
                 parsed.timefrom = self.get_time_from(content)
                 parsed.dateto = self.get_time_to(content)
+                parsed = self.better_times(parsed)
             else:
                 # Если it's a task => body = get_task_content
                 parsed.body = self.get_task_content(content)
@@ -333,7 +351,7 @@ class GPT:
                 # Если хотите всё же попытаться вынуть дату => можно оставить,
                 # но тогда, если GPT всё же вернёт мусор => InvalidDate.
                 # Так что лучше вообще не заполнять для задач.
-                parsed.timefrom = {}
+                parsed.timefrom = self.get_time_to(content)
                 parsed.dateto = {}
 
             parsed.client_id = content.client_id

@@ -1,6 +1,6 @@
 import requests
 from typing import Optional
-from Project.Request import Request
+from Request import Request
 
 class TodoistModule:
     """
@@ -67,7 +67,8 @@ class TodoistModule:
             due_string = None
             if 'dateTime' in task_request.timefrom:
                 # Извлекаем только дату из dateTime
-                due_string = task_request.timefrom['dateTime'].split("T")[0]
+                due_string = " at ".join(task_request.timefrom['dateTime'].split("+")[0].split("T"))
+                print(due_string)
             elif 'date' in task_request.timefrom:
                 due_string = task_request.timefrom['date']
             if due_string:
