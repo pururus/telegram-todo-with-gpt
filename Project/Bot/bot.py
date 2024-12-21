@@ -531,6 +531,7 @@ async def handle_user_message(message: types.Message, state: FSMContext):
         logger.exception(f"Произошла ошибка: {e}")
         await message.answer("Произошла ошибка. Пожалуйста, попробуйте позже.")
 
+
 if __name__ == "__main__":
     print("Бот запущен")
     asyncio.run(dp.start_polling(bot))
