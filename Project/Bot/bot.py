@@ -24,13 +24,13 @@ for file_path in search_directory.rglob("Project"):
 import sys
 sys.path.append('project')
 
-from Project.Todoist.Todoist_module import TodoistModule
-from Project.Database.Database import ClientsDB, Errors
-from Project.Calendar.Calendar_module import CalendarModule
-from Project.GPT.GPT_module import GPT
-from Project.Request import RequestType
-from Project.Query import Query
-from Project.GPT.credentials import cal_credentials
+from Todoist.Todoist_module import TodoistModule
+from Database.Database import ClientsDB, Errors
+from Calendar.Calendar_module import CalendarModule
+from GPT.GPT_module import GPT
+from Request import RequestType
+from Query import Query
+from GPT.credentials import cal_credentials
 
 API_TOKEN = '8149845915:AAEoY53NSKqO5QntlTI6fwz4x-0j70e1X3o'
 
@@ -49,7 +49,7 @@ dp = Dispatcher(storage=storage)
 - calendar: для взаимодействия с Google Calendar
 - gpt_parser: для парсинга сообщений с помощью GPT
 """
-db = ClientsDB("client_DB")
+db = ClientsDB("client_DB_____")
 calendar = CalendarModule()
 gpt_parser = GPT()
 
@@ -120,7 +120,7 @@ async def start_handler(message: types.Message, state: FSMContext):
     if is_user_registered(telegram_id):
         await message.answer("Вы уже зарегистрированы.", reply_markup=get_main_menu_keyboard())
     else:
-        calendar_image = FSInputFile("google_png.png")
+        calendar_image = FSInputFile("/Users/svatoslavpolonskiy/Documents/Deep_python/telegram-todo-with-gpt/Project/Bot/google_png.png")
         await message.answer_photo(
             photo=calendar_image,
             caption=(
@@ -185,7 +185,7 @@ async def process_google_calendar_id(message: types.Message, state: FSMContext):
 
     await state.update_data(google_calendar_id=google_calendar_id)
 
-    todoist_image = FSInputFile("todoist_png.png")
+    todoist_image = FSInputFile("/Users/svatoslavpolonskiy/Documents/Deep_python/telegram-todo-with-gpt/Project/Bot/todoist_png.png")
     await message.answer_photo(
         photo=todoist_image,
         caption=(
@@ -495,6 +495,36 @@ async def handle_user_message(message: types.Message, state: FSMContext):
                 await message.answer("Пожалуйста, введите информацию о задаче.")
                 await state.set_state(UserStates.waiting_for_task)
             else:
+                content = Query(
+                    client_id=telegram_id,
+                    current_time=datetime.now(),
+                    content=user_input
+                )
+                parsed_request = gpt_parser.parse_message(content)
+                logger.info(f"Parsed task: {parsed_request}")
+
+                if parsed_request and parsed_request.type == RequestType.GOAL:
+                    todoist_token = db.get_todoist_token(telegram_id)
+                    todoist_module = TodoistModule(todoist_token)
+                    response = todoist_module.create_task(parsed_request)
+                    if response is None:
+                        await message.answer(f"Задача '{parsed_request.body}' успешно добавлена в Todoist.")
+                    else:
+                        await message.answer(f"Не удалось добавить задачу в Todoist. Ошибка: {response}")
+
+                    await state.clear()
+                    await message.answer("Что хотите сделать дальше?", reply_markup=get_main_menu_keyboard())
+                elif parsed_request and parsed_request.type == RequestType.EVENT:
+                    calendar_id = db.get_calendar_id(telegram_id)
+                    response = calendar.create_event(parsed_request, calendar_id)
+                    if response is None:
+                        await message.answer(f"Событие '{parsed_request.body}' успешно добавлено в Google Calendar.")
+                    else:
+                        await message.answer(f"Не удалось добавить событие в Google Calendar. Ошибка: {response}")
+
+                    await state.clear()
+                    await message.answer("Что хотите сделать дальше?", reply_markup=get_main_menu_keyboard())
+                
                 await message.answer("Пожалуйста, выберите действие из меню.", reply_markup=get_main_menu_keyboard())
 
     except Exception as e:
