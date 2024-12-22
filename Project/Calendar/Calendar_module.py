@@ -4,6 +4,8 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from pathlib import Path
 from typing import Dict, Union
+import aiohttp
+import asyncio
 
 search_directory = Path('../')
 
@@ -37,7 +39,7 @@ class CalendarModule:
         credentials = service_account.Credentials.from_service_account_file(self.SERVICE_ACCOUNT_FILE, scopes=self.SCOPES)
         self.service = build('calendar', 'v3', credentials=credentials)
 
-    def validate_calendar_id(self, calendar_id: str) -> bool:
+    async def validate_calendar_id(self, calendar_id: str) -> bool:
         """
         Проверяет валидность переданного Google Calendar ID:
         1) Вызывает метод self.service.calendars().get(...) и ловит исключения.
@@ -49,8 +51,10 @@ class CalendarModule:
         Returns:
             bool: True, если календарь найден и доступен; False, если нет.
         """
+        loop = asyncio.get_event_loop()
+        
         try:
-            result = self.service.calendars().get(calendarId=calendar_id).execute()
+            result = await loop.run_in_executor(None, self.service.calendars().get, {'calendarId': calendar_id})
             if result:
                 return True
         except googleapiclient.errors.HttpError:
@@ -59,7 +63,7 @@ class CalendarModule:
             return False
         return False
 
-    def create_event(self, event: Union[Dict[str, str], Request], calendarId: str):
+    async def create_event(self, event: Union[Dict[str, str], Request], calendarId: str):
         """
         Создаёт событие в Google Calendar.
 
@@ -87,9 +91,12 @@ class CalendarModule:
                 new_dict["end"] = {"date": event.dateto.get('date', event.timefrom['date'])}
 
             event = new_dict
-
+            
+        loop = asyncio.get_event_loop()
+        
         try:
-            event_result = self.service.events().insert(calendarId=calendarId, body=event).execute()
+            event_result = await loop.run_in_executor(None, self.service.calendars().get, {'calendarId': calendarId, 'body': event})
+            
             print('Event created: %s' % (event_result.get('id')))
         except googleapiclient.errors.HttpError as e:
             return e.reason

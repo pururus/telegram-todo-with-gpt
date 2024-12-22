@@ -178,7 +178,7 @@ async def process_google_calendar_id(message: types.Message, state: FSMContext):
     google_calendar_id = message.text.strip()
     telegram_id = str(message.from_user.id)
 
-    is_valid = calendar.validate_calendar_id(google_calendar_id)
+    is_valid = await calendar.validate_calendar_id(google_calendar_id)
     if not is_valid:
         await message.answer_sticker("CAACAgIAAxkBAAENXVVnZpAk9PS1lNx4P-nqpTvDiFaDaQACt2IAA7QwSwxxEbxXoU5MNgQ") # неверный гугол календарь айди
         return
@@ -228,7 +228,7 @@ async def process_todoist_token(message: types.Message, state: FSMContext):
         todoist_module = TodoistModule(todoist_token)
 
         # Проверка валидности токена
-        if not todoist_module.validate_token():
+        if not await todoist_module.validate_token():
             # Если токен невалидный, отправляем стикер
             await message.answer_sticker("CAACAgIAAxkBAAENXVlnZpBVoCDz9AbxflDAeW1KWVXSCAACuWEAAq-EMUuLDDAtDmQyNzYE")  # Стикер с сообщением о неверном токене
             return
@@ -323,7 +323,7 @@ async def process_new_calendar_id(message: types.Message, state: FSMContext):
     new_calendar_id = message.text.strip()
     telegram_id = str(message.from_user.id)
 
-    if not calendar.validate_calendar_id(new_calendar_id):
+    if not await calendar.validate_calendar_id(new_calendar_id):
         await message.answer_sticker("CAACAgIAAxkBAAENXVVnZpAk9PS1lNx4P-nqpTvDiFaDaQACt2IAA7QwSwxxEbxXoU5MNgQ") # неверный гугол календарь айди
         return
 
@@ -368,7 +368,7 @@ async def process_new_todoist_token(message: types.Message, state: FSMContext):
     telegram_id = str(message.from_user.id)
 
     todoist_module = TodoistModule(new_todoist_token)
-    if not todoist_module.validate_token():
+    if not await todoist_module.validate_token():
         await message.answer_sticker("CAACAgIAAxkBAAENXVlnZpBVoCDz9AbxflDAeW1KWVXSCAACuWEAAq-EMUuLDDAtDmQyNzYE") # неверный тудуист токен
         return
 
@@ -447,12 +447,12 @@ async def handle_user_message(message: types.Message, state: FSMContext):
                 current_time=datetime.now(),
                 content=user_input
             )
-            parsed_request = gpt_parser.parse_message(content)
+            parsed_request = await gpt_parser.parse_message(content)
             logger.info(f"Parsed request: {parsed_request}")
 
             if parsed_request and parsed_request.type == RequestType.EVENT:
                 calendar_id = db.get_calendar_id(telegram_id)
-                response = calendar.create_event(parsed_request, calendar_id)
+                response = await calendar.create_event(parsed_request, calendar_id)
                 if response is None:
                     await message.answer(f"Событие '{parsed_request.body}' успешно добавлено в Google Calendar.")
                 else:
@@ -469,13 +469,13 @@ async def handle_user_message(message: types.Message, state: FSMContext):
                 current_time=datetime.now(),
                 content=user_input
             )
-            parsed_request = gpt_parser.parse_message(content)
+            parsed_request = await gpt_parser.parse_message(content)
             logger.info(f"Parsed task: {parsed_request}")
 
             if parsed_request and parsed_request.type == RequestType.GOAL:
                 todoist_token = db.get_todoist_token(telegram_id)
                 todoist_module = TodoistModule(todoist_token)
-                response = todoist_module.create_task(parsed_request)
+                response = await todoist_module.create_task(parsed_request)
                 if response is None:
                     await message.answer(f"Задача '{parsed_request.body}' успешно добавлена в Todoist.")
                 else:
@@ -500,13 +500,13 @@ async def handle_user_message(message: types.Message, state: FSMContext):
                     current_time=datetime.now(),
                     content=user_input
                 )
-                parsed_request = gpt_parser.parse_message(content)
+                parsed_request = await gpt_parser.parse_message(content)
                 logger.info(f"Parsed task: {parsed_request}")
 
                 if parsed_request and parsed_request.type == RequestType.GOAL:
                     todoist_token = db.get_todoist_token(telegram_id)
                     todoist_module = TodoistModule(todoist_token)
-                    response = todoist_module.create_task(parsed_request)
+                    response = await todoist_module.create_task(parsed_request)
                     if response is None:
                         await message.answer(f"Задача '{parsed_request.body}' успешно добавлена в Todoist.")
                     else:
@@ -516,7 +516,7 @@ async def handle_user_message(message: types.Message, state: FSMContext):
                     await message.answer("Что хотите сделать дальше?", reply_markup=get_main_menu_keyboard())
                 elif parsed_request and parsed_request.type == RequestType.EVENT:
                     calendar_id = db.get_calendar_id(telegram_id)
-                    response = calendar.create_event(parsed_request, calendar_id)
+                    response = await calendar.create_event(parsed_request, calendar_id)
                     if response is None:
                         await message.answer(f"Событие '{parsed_request.body}' успешно добавлено в Google Calendar.")
                     else:

@@ -4,6 +4,8 @@ import uuid
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
+import asyncio
+import aiohttp
 
 search_directory = Path('../')
 
@@ -28,7 +30,7 @@ class GPT:
     _model = "GigaChat-Max"
     _url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
 
-    def get_token(self, auth_token, scope='GIGACHAT_API_PERS'):
+    async def get_token(self, auth_token, scope='GIGACHAT_API_PERS'):
         rq_uid = str(uuid.uuid4())
         url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
 
@@ -42,20 +44,21 @@ class GPT:
             'scope': scope
         }
         try:
-            response = requests.post(url, headers=headers, data=payload, verify=False)
-            return response
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=headers, data=payload, ssl=False) as response:
+                    return await response.json()
         except requests.RequestException as e:
             print(f"Ошибка: {str(e)}")
             return -1
 
-    def check_token(self):
-        encoded_credentials = base64.b64encode(cal_credentials.encode('utf-8')).decode('utf-8')
+    async def check_token(self):
         if self._token is None:
-            self.token = self.get_token(encoded_credentials).json()['access_token']
+            encoded_credentials = base64.b64encode(cal_credentials.encode('utf-8')).decode('utf-8')
+            self._token = (await self.get_token(encoded_credentials))["access_token"]
 
-    def request(self, message: str, max_tockens: int = 50, temp=1) -> str:
+    async def request(self, message: str, max_tockens: int = 50, temp=1) -> str:
         payload = json.dumps({
-            "model": "GigaChat-Max",
+            "model": self._model,
             "messages": [
                 {
                     "role": "user",
@@ -70,14 +73,15 @@ class GPT:
         headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'Authorization': f'Bearer {self.token}'
+            'Authorization': f'Bearer {self._token}'
         }
 
-        response = requests.request("POST", self._url, headers=headers, data=payload, verify=False)
-        return response
+        async with aiohttp.ClientSession() as session:
+            async with session.post(self._url, headers=headers, data=payload, ssl=False) as response:
+                return await response.json()
 
-    def get_type(self, content: Query, temp=1) -> RequestType:
-        self.check_token()
+    async def get_type(self, content: Query, temp=1) -> RequestType:
+        await self.check_token()
 
         message = f'''Вся информация, которую я упоминаю в этом чате, должна остаться строго в рамках этого чата. Не сохраняй её, не используй ни в каких других контекстах и не упоминай её нигде в будущем. Считай, что вся информация исчезает сразу после завершения беседы, и ты не знаешь, что она когда-либо существовала. Не сохраняй и не используй эти данные в других чатах или беседях.
                         Не используй какого-либо контекста кроме этого сообщения, считай его первым, которое ты видел.
@@ -107,8 +111,9 @@ class GPT:
         Напиши только тип ("event", "task" или "else")!'''
 
         try:
-            ans = (self.request(message, 100, temp).json()['choices'][0]['message']['content']).lower()
-        except:
+            ans = ((await self.request(message, 100, temp))['choices'][0]['message']['content']).lower()
+        except Exception as e:
+            print(e)
             if "Max" in self._model:
                 self._model = "GigaChat-Pro"
                 return RequestType.ELSE
@@ -123,8 +128,8 @@ class GPT:
         else:
             return RequestType.ELSE
 
-    def get_event_content(self, content: Query) -> str:
-        self.check_token()
+    async def get_event_content(self, content: Query) -> str:
+        await self.check_token()
 
         message = f'''Ты обрабатываешь сообщения от пользователя чат-бота с интеграцией календаря. 
         Пользователь отправил сообщение "{content.content}". Пользователь хочет поставить это событие в календарь.Твоя задача — определить название события максимально понятно, сохранить важную информацию и эмоции.
@@ -148,9 +153,9 @@ class GPT:
 
         Напиши только название события, без времени и других деталей!'''
 
-        return self.request(message, 10).json()['choices'][0]['message']['content']
+        return (await self.request(message, 10))['choices'][0]['message']['content']
 
-    def get_task_content(self, content: Query) -> str:
+    async def get_task_content(self, content: Query) -> str:
         self.check_token()
 
         message = f'''Ты обрабатываешь сообщения от пользователя чат-бота с интеграцией todo-листа. 
@@ -175,12 +180,12 @@ class GPT:
 
         Напиши только текст задачи, без времени или других деталей!'''
 
-        return self.request(message, 15).json()['choices'][0]['message']['content']
+        return (await self.request(message, 15))['choices'][0]['message']['content']
 
-    def check_date(self, date: str) -> bool:
+    async def check_date(self, date: str) -> bool:
         return date[-1] == "T" or date.count("T") == 0
 
-    def makefull(self, time: str) -> str:
+    async def makefull(self, time: str) -> str:
         parts = time.split("T")
         if len(parts) == 1:
             time = f"{parts[0]}T00:00:00+03:00"  # Дата без времени
@@ -193,7 +198,7 @@ class GPT:
                 time = f"{parts[0]}T{parts[1]}+03:00"
         return time
 
-    def normalize_time(self, time: str) -> Dict[str, str]:
+    async def normalize_time(self, time: str) -> Dict[str, str]:
         """
         НИЖЕ — ключевая правка, чтобы при отсутствии реальной даты
         возвращать пустой словарь {}, а не {'date': ''}.
@@ -227,14 +232,14 @@ class GPT:
                 return {}
             return {'date': normal_time[:-2]}
         else:
-            dt = self.makefull(normal_time)
+            dt = await self.makefull(normal_time)
             if len(dt) < 10:
                 return {}
             dt = dt.replace("T24", "T23")
             return {'dateTime': dt}
 
-    def get_time_from(self, content: Query) -> Dict[str, str]:
-        self.check_token()
+    async def get_time_from(self, content: Query) -> Dict[str, str]:
+        await self.check_token()
 
         message = f'''Ты обрабатываешь сообщения от пользователя чат-бота с интеграцией календаря. Ты умеешь писать только даты и часы. Не используй слова!!!! У тебя лимит в 5-6 слов.
         Преобразуй запрос "{content.content}" в формат даты и времени начала события: "[<дата>; <время>]". Учитывай, что текущее время: {content.current_time.strftime("%Y-%m-%d %H:%M:%S")}.
@@ -249,8 +254,8 @@ class GPT:
         7. "Покормить котят в час дня" -> [2024-12-21; 13:00:00]
         8. "Экзамен по алгебре послезавтра в три часа дня" -> [2024-12-23; 15:00:00 ]'''
 
-        raw = self.request(message, 25).json()['choices'][0]['message']['content']
-        time = self.normalize_time(raw)
+        raw = (await self.request(message, 25))['choices'][0]['message']['content']
+        time = await self.normalize_time(raw)
         if "date" in time and "завтра" in time["date"].lower():
             time["date"] = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         elif "date" in time and "послезавтра" in time["date"].lower():
@@ -263,8 +268,8 @@ class GPT:
             time.pop("dateTime")
         return time
 
-    def get_time_to(self, content: Query) -> Dict[str, str]:
-        self.check_token()
+    async def get_time_to(self, content: Query) -> Dict[str, str]:
+        await self.check_token()
 
         message = f'''f"У тебя лимит в 5 слов!
                         Ты умеешь писать только даты и часы
@@ -293,8 +298,8 @@ class GPT:
         7. "Экзамен по алгебре послезавтра в три часа дня" -> [2024-12-21; 18:00:00]
 '''
 
-        raw = self.request(message, 25).json()['choices'][0]['message']['content']
-        time = self.normalize_time(raw)
+        raw = (await self.request(message, 25))['choices'][0]['message']['content']
+        time = await self.normalize_time(raw)
         if "date" in time and "завтра" in time["date"].lower():
             time["date"] = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         if "date" in time and "послезавтра" in time["date"].lower():
@@ -307,51 +312,52 @@ class GPT:
             time.pop("dateTime")
         return time
 
-    def get_description(self, content: Query) -> str:
-        self.check_token()
+    async def get_description(self, content: Query) -> str:
+        await self.check_token()
 
         message = f'''Ты обрабатываешь сообщения от пользователя чат-бота с интеграцией календаря.
                         Пользователь отправил сообщение "{content.content}". Пользователь хочет поставить это
                         событие в календарь. Тебе нужно определить и выписать описание этого события максимально полноценно.
                         Напиши только описание события!'''
 
-        return self.request(message, 10).json()['choices'][0]['message']['content']
+        return (await self.request(message, 10))['choices'][0]['message']['content']
 
-    def better_times(self, parsed: Request):
+    async def better_times(self, parsed: Request):
         if "dateTime" in parsed.dateto and "dateTime" in parsed.timefrom:
             parsed.timefrom["dateTime"], parsed.dateto["dateTime"] = min(parsed.timefrom["dateTime"], parsed.dateto["dateTime"]), max(parsed.timefrom["dateTime"], parsed.dateto["dateTime"])
         else:
             parsed.dateto = parsed.timefrom
         return parsed
     
-    def parse_message(self, content: Query) -> Optional[Request]:
+    async def parse_message(self, content: Query) -> Optional[Request]:
         try:
             parsed = Request(RequestType.ELSE, "", "", {}, None, None)
-            parsed.type = self.get_type(content)
+            parsed.type = await self.get_type(content)
 
             if parsed.type == RequestType.ELSE:
-                parsed.type = self.get_type(content, temp=10)
+                parsed.type = await self.get_type(content, temp=10)
                 if parsed.type == RequestType.ELSE:
-                    parsed.type = self.get_type(content, temp=100)
+                    parsed.type = await self.get_type(content, temp=100)
                     if parsed.type == RequestType.ELSE:
                         return None
             elif parsed.type == RequestType.EVENT:
-                parsed.body = self.get_event_content(content)
-                parsed.extra = self.get_description(content)
+                
+                parsed.body, parsed.extra, parsed.timefrom, parsed.dateto = await asyncio.gather(
+                                                                                self.get_event_content(content),
+                                                                                self.get_description(content),
+                                                                                self.get_time_from(content),
+                                                                                self.get_time_to(content))
                 # Для EVENT мы идём дальше, получаем timefrom/timeTo
-                parsed.timefrom = self.get_time_from(content)
-                parsed.dateto = self.get_time_to(content)
-                parsed = self.better_times(parsed)
+                parsed = await self.better_times(parsed)
             else:
                 # Если it's a task => body = get_task_content
-                parsed.body = self.get_task_content(content)
+                parsed.body, parsed.timefrom = await asyncio.gather(self.get_task_content(content), self.get_time_to(content))
                 # КЛЮЧЕВОЕ: НЕ вызываем get_time_from / get_time_to => нет даты => FIX
                 # parsed.timefrom = {}
                 # parsed.dateto = {}
                 # Если хотите всё же попытаться вынуть дату => можно оставить,
                 # но тогда, если GPT всё же вернёт мусор => InvalidDate.
                 # Так что лучше вообще не заполнять для задач.
-                parsed.timefrom = self.get_time_to(content)
                 parsed.dateto = {}
 
             parsed.client_id = content.client_id

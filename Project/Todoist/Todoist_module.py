@@ -1,6 +1,7 @@
 import requests
 from typing import Optional
 from Request import Request
+import aiohttp
 
 class TodoistModule:
     """
@@ -22,7 +23,7 @@ class TodoistModule:
             "Content-Type": "application/json"
         }
 
-    def validate_token(self) -> bool:
+    async def validate_token(self) -> bool:
         """
         Проверяет валидность Todoist API токена.
 
@@ -35,12 +36,14 @@ class TodoistModule:
             bool: True, если токен валиден, False — если нет.
         """
         url = "https://api.todoist.com/rest/v2/projects"
-        response = requests.get(url, headers=self.headers)
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=self.headers) as response:
+                return await response
         if response.status_code == 200:
             return True
         return False
 
-    def create_task(self, task_request: Request) -> Optional[str]:
+    async def create_task(self, task_request: Request) -> Optional[str]:
         """
         Создаёт задачу в Todoist.
 
@@ -74,8 +77,11 @@ class TodoistModule:
             if due_string:
                 data["due_string"] = due_string  # Передаём в корректном формате
 
-        response = requests.post(url, headers=self.headers, json=data)
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=self.headers, json=data) as response:
+                return await response
         if response.status_code == 200 or response.status_code == 204:
             return None  # Успех
         else:
             return f"Error {response.status_code}: {response.text}"
+
