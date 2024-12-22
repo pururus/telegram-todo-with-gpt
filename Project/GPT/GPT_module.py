@@ -31,6 +31,11 @@ class GPT:
     _url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
 
     async def get_token(self, auth_token, scope='GIGACHAT_API_PERS'):
+        '''
+        Функция возвращает API токен для gigachat
+        
+        :param auth_token: Закодированные client_id и секретный ключ
+        '''
         rq_uid = str(uuid.uuid4())
         url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
 
@@ -52,11 +57,23 @@ class GPT:
             return -1
 
     async def check_token(self):
+        '''
+        Проверяет, получен ли API токен, и, если нет, устанавливает токен в соответствующее поле.
+        '''
         if self._token is None:
             encoded_credentials = base64.b64encode(cal_credentials.encode('utf-8')).decode('utf-8')
             self._token = (await self.get_token(encoded_credentials))["access_token"]
 
-    async def request(self, message: str, max_tockens: int = 50, temp=1) -> str:
+    async def request(self, message: str, max_tockens: int = 50, temp=1):
+        '''
+        Функция для запросов к API
+        
+        :param message: Сообщение, отправляемое LLM
+        :param max_tockens: Максимальное количество токенов в ответе
+        :param temp: Температура. Влияет на ответ
+        
+        :return: словарь
+        '''
         payload = json.dumps({
             "model": self._model,
             "messages": [
@@ -81,6 +98,15 @@ class GPT:
                 return await response.json()
 
     async def get_type(self, content: Query, temp=1) -> RequestType:
+        '''
+        Получает тип запроса пользователя. 
+        
+        :param content: Запрос пользователя
+        :param temp: Температура. Влияет на ответ
+        
+        :return: RequestType
+        '''
+        
         await self.check_token()
 
         message = f'''Вся информация, которую я упоминаю в этом чате, должна остаться строго в рамках этого чата. Не сохраняй её, не используй ни в каких других контекстах и не упоминай её нигде в будущем. Считай, что вся информация исчезает сразу после завершения беседы, и ты не знаешь, что она когда-либо существовала. Не сохраняй и не используй эти данные в других чатах или беседях.
@@ -129,6 +155,14 @@ class GPT:
             return RequestType.ELSE
 
     async def get_event_content(self, content: Query) -> str:
+        '''
+        Получает название события из сообщения пользователя. 
+        
+        :param content: Запрос пользователя
+        
+        :return: название события
+        '''
+        
         await self.check_token()
 
         message = f'''Ты обрабатываешь сообщения от пользователя чат-бота с интеграцией календаря. 
@@ -156,6 +190,14 @@ class GPT:
         return (await self.request(message, 10))['choices'][0]['message']['content']
 
     async def get_task_content(self, content: Query) -> str:
+        '''
+        Получает название задачи из сообщения пользователя. 
+        
+        :param content: Запрос пользователя
+        
+        :return: название задачи
+        '''
+        
         self.check_token()
 
         message = f'''Ты обрабатываешь сообщения от пользователя чат-бота с интеграцией todo-листа. 
@@ -183,9 +225,25 @@ class GPT:
         return (await self.request(message, 15))['choices'][0]['message']['content']
 
     async def check_date(self, date: str) -> bool:
+        '''
+        Проверяет что строка, полученная от normalize_time, является датой 
+        
+        :param date: Строка от normalize_time
+        
+        :return: bool
+        '''
+        
         return date[-1] == "T" or date.count("T") == 0
 
     async def makefull(self, time: str) -> str:
+        '''
+        Приводит строку dateTime в формат yyyy-mm-ddThh:mm:ss+03:00
+        
+        :param time: Строка от normalize_time
+        
+        :return: yyyy-mm-ddThh:mm:ss+03:00
+        '''
+        
         parts = time.split("T")
         if len(parts) == 1:
             time = f"{parts[0]}T00:00:00+03:00"  # Дата без времени
@@ -239,6 +297,14 @@ class GPT:
             return {'dateTime': dt}
 
     async def get_time_from(self, content: Query) -> Dict[str, str]:
+        '''
+        Получает дату(и время) начала события из сообщения пользователя. 
+        
+        :param content: Запрос пользователя
+        
+        :return: дату(и время)
+        '''
+        
         await self.check_token()
 
         message = f'''Ты обрабатываешь сообщения от пользователя чат-бота с интеграцией календаря. Ты умеешь писать только даты и часы. Не используй слова!!!! У тебя лимит в 5-6 слов.
@@ -269,6 +335,14 @@ class GPT:
         return time
 
     async def get_time_to(self, content: Query) -> Dict[str, str]:
+        '''
+        Получает дату(и время) конца события/дедлайн из сообщения пользователя. 
+        
+        :param content: Запрос пользователя
+        
+        :return: дату(и время)
+        '''
+        
         await self.check_token()
 
         message = f'''f"У тебя лимит в 5 слов!
@@ -313,6 +387,14 @@ class GPT:
         return time
 
     async def get_description(self, content: Query) -> str:
+        '''
+        Получает описание события из сообщения пользователя. 
+        
+        :param content: Запрос пользователя
+        
+        :return: описание
+        '''
+        
         await self.check_token()
 
         message = f'''Ты обрабатываешь сообщения от пользователя чат-бота с интеграцией календаря.
@@ -323,6 +405,9 @@ class GPT:
         return (await self.request(message, 10))['choices'][0]['message']['content']
 
     async def better_times(self, parsed: Request):
+        '''
+        Упорядочивает даты
+        '''
         if "dateTime" in parsed.dateto and "dateTime" in parsed.timefrom:
             parsed.timefrom["dateTime"], parsed.dateto["dateTime"] = min(parsed.timefrom["dateTime"], parsed.dateto["dateTime"]), max(parsed.timefrom["dateTime"], parsed.dateto["dateTime"])
         else:
@@ -330,6 +415,9 @@ class GPT:
         return parsed
     
     async def parse_message(self, content: Query) -> Optional[Request]:
+        '''
+        Парсит сообщение пользователя
+        '''
         try:
             parsed = Request(RequestType.ELSE, "", "", {}, None, None)
             parsed.type = await self.get_type(content)
