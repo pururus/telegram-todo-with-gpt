@@ -54,7 +54,7 @@ class CalendarModule:
         loop = asyncio.get_event_loop()
         
         try:
-            result = await loop.run_in_executor(None, self.service.calendars().get, {'calendarId': calendar_id})
+            result = await loop.run_in_executor(None, lambda: self.service.calendars().get(calendarId=calendar_id).execute())
             if result:
                 return True
         except googleapiclient.errors.HttpError:
@@ -85,18 +85,26 @@ class CalendarModule:
             # Приведение start и end к одинаковому формату
             if 'dateTime' in event.timefrom:
                 new_dict["start"] = {"dateTime": event.timefrom['dateTime']}
-                new_dict["end"] = {"dateTime": event.dateto.get('dateTime', event.timefrom['dateTime'])}
-            else:
+                if event.dateto and 'dateTime' in event.dateto:
+                    new_dict["end"] = {"dateTime": event.dateto.get('dateTime', event.timefrom['dateTime'])}
+                else:
+                    new_dict["end"] = {"dateTime": event.timefrom['dateTime']}
+            elif 'date' in event.timefrom:
                 new_dict["start"] = {"date": event.timefrom['date']}
-                new_dict["end"] = {"date": event.dateto.get('date', event.timefrom['date'])}
+                if event.dateto and 'date' in event.dateto:
+                    new_dict["end"] = {"date": event.dateto.get('date', event.timefrom['date'])}
+                else:
+                    new_dict["end"] = {"date": event.timefrom['date']}
 
             event = new_dict
             
         loop = asyncio.get_event_loop()
         
         try:
-            event_result = await loop.run_in_executor(None, self.service.calendars().get, {'calendarId': calendarId, 'body': event})
-            
+            event_result = await loop.run_in_executor(
+                None,
+                lambda: self.service.events().insert(calendarId=calendarId, body=event).execute()
+            )
             print('Event created: %s' % (event_result.get('id')))
         except googleapiclient.errors.HttpError as e:
             return e.reason

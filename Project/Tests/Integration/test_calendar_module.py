@@ -21,7 +21,10 @@ def MyCalendar():
 
 calendarId = '24399fbb12f20e1fdfaafd993ad4531dbe2675d11af0bd5dfa63a3292b503ef3@group.calendar.google.com'
 
-def test_normal_event(MyCalendar):
+pytest_plugins = ('pytest_asyncio',)
+
+@pytest.mark.asyncio
+async def test_normal_event(MyCalendar):
     event = {
         'summary': 'test event',
         'description': 'normal one',
@@ -32,10 +35,11 @@ def test_normal_event(MyCalendar):
             'dateTime': '2024-11-30T13:30:00+03:00',
         }
     }
-    response = MyCalendar.create_event(event, calendarId)
+    response = await (MyCalendar.create_event(event, calendarId))
     assert response is None
 
-def test_event_with_date(MyCalendar):
+@pytest.mark.asyncio
+async def test_event_with_date(MyCalendar):
     event = {
         'summary': 'test event',
         'description': 'only date',
@@ -46,10 +50,11 @@ def test_event_with_date(MyCalendar):
             'date': '2023-12-01',
         },
     }
-    response = MyCalendar.create_event(event, calendarId)
+    response = await MyCalendar.create_event(event, calendarId)
     assert response is None
 
-def test_event_with_no_end(MyCalendar):
+@pytest.mark.asyncio
+async def test_event_with_no_end(MyCalendar):
     event = {
         'summary': 'test event',
         'description': 'only date',
@@ -57,11 +62,12 @@ def test_event_with_no_end(MyCalendar):
             'date': '2023-11-30',
         },
     }
-    response = MyCalendar.create_event(event, calendarId)
+    response = await MyCalendar.create_event(event, calendarId)
     assert response is not None
     assert 'Missing end time.' in str(response)
 
-def test_event_with_no_start(MyCalendar):
+@pytest.mark.asyncio
+async def test_event_with_no_start(MyCalendar):
     event = {
         'summary': 'test event',
         'description': 'only date',
@@ -69,20 +75,22 @@ def test_event_with_no_start(MyCalendar):
             'date': '2023-11-30',
         },
     }
-    response = MyCalendar.create_event(event, calendarId)
+    response = await MyCalendar.create_event(event, calendarId)
     assert response is not None
     assert 'Start and end times must either both be date or both be dateTime.' in str(response)
 
-def test_event_with_no_time(MyCalendar):
+@pytest.mark.asyncio
+async def test_event_with_no_time(MyCalendar):
     event = {
         'summary': 'test event',
         'description': 'only date',
     }
-    response = MyCalendar.create_event(event, calendarId)
+    response = await MyCalendar.create_event(event, calendarId)
     assert response is not None
     assert 'Missing end time.' in str(response)
 
-def test_event_with_no_name(MyCalendar):
+@pytest.mark.asyncio
+async def test_event_with_no_name(MyCalendar):
     event = {
         'description': 'normal one',
         'start': {
@@ -92,10 +100,11 @@ def test_event_with_no_name(MyCalendar):
             'dateTime': '2024-11-30T13:30:00+03:00',
         }
     }
-    response = MyCalendar.create_event(event, calendarId)
+    response = await MyCalendar.create_event(event, calendarId)
     assert response is None
 
-def test_event_with_no_name(MyCalendar):
+@pytest.mark.asyncio
+async def test_event_with_no_name(MyCalendar):
     event = {
         'description': 'normal one',
         'start': {
@@ -105,10 +114,11 @@ def test_event_with_no_name(MyCalendar):
             'dateTime': '2024-11-30T13:30:00+03:00',
         }
     }
-    response = MyCalendar.create_event(event, calendarId)
+    response = await MyCalendar.create_event(event, calendarId)
     assert response is None
 
-def test_event_with_no_description(MyCalendar):
+@pytest.mark.asyncio
+async def test_event_with_no_description(MyCalendar):
     event = {
         'summary': 'test event',
         'start': {
@@ -118,10 +128,11 @@ def test_event_with_no_description(MyCalendar):
             'dateTime': '2024-11-30T13:30:00+03:00',
         }
     }
-    response = MyCalendar.create_event(event, calendarId)
+    response = await MyCalendar.create_event(event, calendarId)
     assert response is None
 
-def test_big_event(MyCalendar):
+@pytest.mark.asyncio
+async def test_big_event(MyCalendar):
     event = {
         'summary': 'test event',
         'description': 'big one',
@@ -140,23 +151,36 @@ def test_big_event(MyCalendar):
             ],
         },
     }
-    response = MyCalendar.create_event(event, calendarId)
+    response = await MyCalendar.create_event(event, calendarId)
     assert response is None
 
-def test_request(MyCalendar):
+@pytest.mark.asyncio
+async def test_request(MyCalendar):
     event = Request(RequestType.EVENT, "client", "Test request", {"dateTime": "2024-12-12T12:12:12+03:00"}, {"dateTime": "2024-12-13T12:12:12+03:00"}, "optional")
 
-    response = MyCalendar.create_event(event, calendarId)
+    response = await MyCalendar.create_event(event, calendarId)
     assert response is None
 
-def test_request_with_no_dateto(MyCalendar):
+@pytest.mark.asyncio
+async def test_request_with_no_dateto(MyCalendar):
     event = Request(RequestType.EVENT, "client", "Test request", {"dateTime": "2024-12-12T12:12:12+03:00"}, None, "optional")
 
-    response = MyCalendar.create_event(event, calendarId)
+    response = await MyCalendar.create_event(event, calendarId)
     assert response is None
 
-def test_request_with_bad_timefrom(MyCalendar):
+@pytest.mark.asyncio
+async def test_request_with_bad_timefrom(MyCalendar):
     event = Request(RequestType.EVENT, "client", "Test request", {"bad": "efkvhweljf"}, None, "optional")
 
-    response = MyCalendar.create_event(event, calendarId)
+    response = await MyCalendar.create_event(event, calendarId)
     assert response is not None
+
+@pytest.mark.asyncio
+async def test_validate_calendar_id(MyCalendar):
+    res = await MyCalendar.validate_calendar_id(calendarId)
+    assert res
+
+@pytest.mark.asyncio
+async def test_validate_calendar_id_invalid_id(MyCalendar):
+    res = await MyCalendar.validate_calendar_id("invalid_id bro")
+    assert not res
