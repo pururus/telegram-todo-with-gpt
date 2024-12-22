@@ -49,7 +49,7 @@ dp = Dispatcher(storage=storage)
 - calendar: для взаимодействия с Google Calendar
 - gpt_parser: для парсинга сообщений с помощью GPT
 """
-db = ClientsDB("client_DB_____")
+db = ClientsDB("client_DB______")
 calendar = CalendarModule()
 gpt_parser = GPT()
 

@@ -35,13 +35,12 @@ class TodoistModule:
         Returns:
             bool: True, если токен валиден, False — если нет.
         """
-        url = "https://api.todoist.com/rest/v2/projects"
+        url = "https://api.todoist.com/rest/v2/tasks"
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=self.headers) as response:
-                return await response
-        if response.status_code == 200:
-            return True
-        return False
+            async with session.get(url, headers=self.headers, ssl=False) as response:
+                if response.status == 200 or response.status == 204:
+                    return True
+                return False
 
     async def create_task(self, task_request: Request) -> Optional[str]:
         """
@@ -78,10 +77,9 @@ class TodoistModule:
                 data["due_string"] = due_string  # Передаём в корректном формате
 
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=self.headers, json=data) as response:
-                return await response
-        if response.status_code == 200 or response.status_code == 204:
-            return None  # Успех
-        else:
-            return f"Error {response.status_code}: {response.text}"
+            async with session.post(url, headers=self.headers, json=data, ssl=False) as response:
+                if response.status == 200 or response.status == 204:
+                    return None  # Успех
+                else:
+                    return f"Error {response.status_code}: {response.text}"
 

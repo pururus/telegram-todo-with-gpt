@@ -279,7 +279,7 @@ class GPT:
         if not normal_time or len(normal_time) < 4:
             return {}
 
-        if self.check_date(normal_time):
+        if await self.check_date(normal_time):
             # Если заканчивается "T" или "-" => у нас обрезок => вернуть {}
             if normal_time.endswith("T") or normal_time.endswith("-"):
                 return {}
@@ -439,7 +439,7 @@ class GPT:
                 parsed = await self.better_times(parsed)
             else:
                 # Если it's a task => body = get_task_content
-                parsed.body, parsed.timefrom = await asyncio.gather(self.get_task_content(content), self.get_time_to(content))
+                parsed.body, parsed.timefrom = await asyncio.gather(self.get_task_content(content), self.get_time_from(content))
                 # КЛЮЧЕВОЕ: НЕ вызываем get_time_from / get_time_to => нет даты => FIX
                 # parsed.timefrom = {}
                 # parsed.dateto = {}
