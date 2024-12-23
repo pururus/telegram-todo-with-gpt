@@ -30,9 +30,7 @@ from Calendar.Calendar_module import CalendarModule
 from GPT.GPT_module import GPT
 from Request import RequestType
 from Query import Query
-from GPT.credentials import cal_credentials
-
-API_TOKEN = '8149845915:AAEoY53NSKqO5QntlTI6fwz4x-0j70e1X3o'
+from Bot.credentials import API_TOKEN
 
 """
 Создаём объекты бота и диспетчера.
@@ -49,7 +47,7 @@ dp = Dispatcher(storage=storage)
 - calendar: для взаимодействия с Google Calendar
 - gpt_parser: для парсинга сообщений с помощью GPT
 """
-db = ClientsDB("client_DB______")
+db = ClientsDB("client_DB")
 calendar = CalendarModule()
 gpt_parser = GPT()
 

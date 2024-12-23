@@ -52,7 +52,7 @@ class GPT:
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, headers=headers, data=payload, ssl=False) as response:
                     return await response.json()
-        except requests.RequestException as e:
+        except aiohttp.ClientError as e:
             print(f"Ошибка: {str(e)}")
             return -1
 
